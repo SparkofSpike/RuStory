@@ -505,6 +505,35 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
         let mut select: Option<NodeId> = None;
 
         egui::ScrollArea::vertical().show(ui, |ui| {
+            // Who points at this node. Deletion refuses while anything does, and the
+            // author is better served knowing that before the attempt than by reading it
+            // in an error afterwards.
+            let referrers = editor.referrers(&selected);
+            if !referrers.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Referenced by:");
+                    for reference in &referrers {
+                        match reference.source() {
+                            Some(source) => {
+                                if ui
+                                    .small_button(source.to_string())
+                                    .on_hover_text(reference.describe())
+                                    .clicked()
+                                {
+                                    select = Some(source.clone());
+                                }
+                            }
+                            // The start node is a reference from the story, not from
+                            // another node, so there is nothing to click.
+                            None => {
+                                ui.label(egui::RichText::new(reference.describe()).weak());
+                            }
+                        }
+                    }
+                });
+                ui.separator();
+            }
+
             // --- story settings ---
             //
             // `SetTitle` and `SetAuthor` existed as operations before they had a control

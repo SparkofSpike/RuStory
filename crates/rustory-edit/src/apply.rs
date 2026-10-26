@@ -293,8 +293,11 @@ pub(crate) fn apply(story: &mut Story, op: &EditOp) -> Result<(), EditError> {
 }
 
 /// One place that points at a node.
+///
+/// Public because a front-end showing "what would break if I deleted this" is more useful
+/// before the attempt than after the refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Reference {
+pub enum Reference {
     Start,
     Goto {
         node: NodeId,
@@ -361,20 +364,41 @@ pub(crate) fn referrers_to(story: &Story, target: &NodeId) -> Vec<Reference> {
 fn describe_referrers(referrers: &[Reference]) -> String {
     referrers
         .iter()
-        .map(|reference| match reference {
-            Reference::Start => "the story's start node".to_owned(),
-            Reference::Goto { node } => format!("a goto in `{node}`"),
-            Reference::Choice { node, index, label } => {
+        .map(Reference::describe)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+impl Reference {
+    /// The node this reference comes from, when it comes from one.
+    ///
+    /// `Start` is a reference from the story itself, so there is nowhere to jump to.
+    #[must_use]
+    pub fn source(&self) -> Option<&NodeId> {
+        match self {
+            Self::Start => None,
+            Self::Goto { node } | Self::Choice { node, .. } | Self::Outcome { node, .. } => {
+                Some(node)
+            }
+        }
+    }
+
+    /// One line a person can read, used in errors and in the editor.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Start => "the story's start node".to_owned(),
+            Self::Goto { node } => format!("a goto in `{node}`"),
+            Self::Choice { node, index, label } => {
                 format!("choice {} (`{label}`) of `{node}`", index + 1)
             }
-            Reference::Outcome {
+            Self::Outcome {
                 node,
                 system,
                 outcome,
             } => format!("outcome `{outcome}` of `{system}` in `{node}`"),
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
+        }
+    }
 }
 
 /// Point every reference to `from` at `to` instead.
@@ -406,5 +430,104 @@ fn rewrite_references(story: &mut Story, from: &NodeId, to: &NodeId) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustory_core::{Choice, GameplaySpec, Node, StoryMeta, SystemId};
+    use std::collections::BTreeMap;
+
+    fn node(exit: Exit) -> Node {
+        Node {
+            beats: Vec::new(),
+            exit,
+        }
+    }
+
+    /// `a` goes to `b`; `b` offers a choice to `c` and a gameplay handover whose
+    /// outcomes also point at `c`; `c` ends. `a` is the start node.
+    fn story() -> Story {
+        let mut nodes = BTreeMap::new();
+        nodes.insert(
+            NodeId::from("a"),
+            node(Exit::Goto {
+                to: NodeId::from("b"),
+            }),
+        );
+        nodes.insert(
+            NodeId::from("b"),
+            node(Exit::Choose {
+                prompt: None,
+                choices: vec![Choice {
+                    label: "onward".into(),
+                    to: NodeId::from("c"),
+                }],
+            }),
+        );
+        let mut outcomes = BTreeMap::new();
+        outcomes.insert(rustory_core::OutcomeKey::from("win"), NodeId::from("c"));
+        nodes.insert(
+            NodeId::from("c"),
+            node(Exit::Gameplay {
+                spec: GameplaySpec {
+                    system: SystemId::from("timer.timed_choice"),
+                    config: None,
+                    outcomes,
+                },
+            }),
+        );
+        Story {
+            meta: StoryMeta::default(),
+            start: NodeId::from("a"),
+            nodes,
+        }
+    }
+
+    #[test]
+    fn every_kind_of_reference_is_found() {
+        let story = story();
+
+        assert_eq!(
+            referrers_to(&story, &NodeId::from("b")),
+            vec![Reference::Goto {
+                node: NodeId::from("a")
+            }]
+        );
+        assert_eq!(
+            referrers_to(&story, &NodeId::from("c")),
+            vec![
+                Reference::Choice {
+                    node: NodeId::from("b"),
+                    index: 0,
+                    label: "onward".into(),
+                },
+                Reference::Outcome {
+                    node: NodeId::from("c"),
+                    system: "timer.timed_choice".into(),
+                    outcome: "win".into(),
+                },
+            ]
+        );
+        assert_eq!(
+            referrers_to(&story, &NodeId::from("a")),
+            vec![Reference::Start]
+        );
+    }
+
+    #[test]
+    fn an_unreferenced_node_has_no_referrers_and_a_description_names_its_source() {
+        let story = story();
+        assert!(referrers_to(&story, &NodeId::from("nowhere")).is_empty());
+
+        let choice = Reference::Choice {
+            node: NodeId::from("b"),
+            index: 2,
+            label: "third".into(),
+        };
+        assert_eq!(choice.source(), Some(&NodeId::from("b")));
+        assert_eq!(choice.describe(), "choice 3 (`third`) of `b`");
+        assert_eq!(Reference::Start.source(), None);
     }
 }

@@ -40,6 +40,7 @@ mod editor;
 mod error;
 mod op;
 
+pub use crate::apply::Reference;
 pub use document::Document;
 pub use editor::{BatchError, Editor, HISTORY_LIMIT, HistoryEntry};
 pub use error::EditError;

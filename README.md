@@ -104,8 +104,10 @@ can mean different things in different scenes because *where each key leads is d
 
 The node list has a filter, and every reference — a `goto`, a choice target, a gameplay
 outcome — has a **Go** button beside it, so following a branch never means remembering a
-node name and scrolling to find it. Selection is UI state, not an edit: it takes no undo
-step and is never written to disk.
+node name and scrolling to find it. The node being edited also lists who points at it —
+the same list that would block a delete, computed by the same function — with a click to
+jump to each referrer. Selection is UI state, not an edit: it takes no undo step and is
+never written to disk.
 
 ![Outcome mappings](shots/editor-outcomes.png)
 

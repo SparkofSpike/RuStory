@@ -18,9 +18,9 @@
 //! `--undo`, and neither needs to know how any operation is inverted, because
 //! nothing is inverted.
 
-use rustory_core::Story;
+use rustory_core::{NodeId, Story};
 
-use crate::apply;
+use crate::apply::{self, Reference};
 use crate::document::Document;
 use crate::error::EditError;
 use crate::op::EditOp;
@@ -114,6 +114,17 @@ impl Editor {
     #[must_use]
     pub fn story(&self) -> &Story {
         self.document.story()
+    }
+
+    /// Every reference to `node`, in a stable order.
+    ///
+    /// The same function deletion and rename consult, so a front-end that lists these
+    /// before a delete lists exactly what would block it. Exposed rather than
+    /// reimplemented because two answers to "what points here" is how a UI starts
+    /// disagreeing with the operation it is guarding.
+    #[must_use]
+    pub fn referrers(&self, node: &NodeId) -> Vec<Reference> {
+        apply::referrers_to(self.story(), node)
     }
 
     #[must_use]
