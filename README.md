@@ -1,4 +1,4 @@
-# RuStory
+﻿# RuStory
 
 **A Rust-native visual novel engine with composable gameplay.**
 
@@ -56,10 +56,37 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 124 tests, including offscreen GPU renders that assert where things land
+- 156 tests, including offscreen GPU renders and 32 covering the editor operations
 
 Not yet: audio, rollback history, WASM plugins, an authoring tool. Those have ADRs
 describing the plan, not code pretending to be one.
+
+## Editor
+
+Two front-ends, one operation layer. The GUI and the CLI both construct
+`rustory_edit::EditOp` values and hand them to the same executor, so an agent can do
+anything a person can — not by keeping two programs in agreement, but because there is
+only one program's worth of rules.
+
+![Editor](shots/editor.png)
+
+```console
+$ cargo run -p rustory-editor -- stories/demo.ron   # GUI
+$ cargo run -p rustory -- ops --json                # what an agent can do
+$ cargo run -p rustory -- inspect stories/demo.ron --json
+$ cargo run -p rustory -- edit stories/demo.ron --op '{"op":"CreateNode","id":"epilogue"}'
+```
+
+Every edit is **all or nothing**: `Editor::apply` either succeeds and leaves a valid
+document, or fails and leaves it byte-for-byte as it was. That is what makes the CLI
+safe to point an agent at.
+
+Deleting a node that is still referenced is refused, and the error names every
+referrer. Deleting the last choice of a branch is refused rather than silently
+turning the exit into an `End`.
+
+The preview panel is the real engine — `rustory_render` drawing the same `Frame` that
+`rustory play` shows. See [ADR 0008](docs/adr/0008-editor-architecture.md).
 
 ## Try it
 
@@ -104,7 +131,8 @@ borrowed.**
 | Story format | `rustory-script` | RON loading, reference validation |
 | Renderer | `rustory-render` | Draw list → pixels on `wgpu`. Knows nothing about stories |
 | Gameplay | `rustory-gameplay-timer`, `rustory-gameplay-quiz` | Two systems bracketing the range: a countdown, and state no counter could hold |
-| Application | `apps/rustory` | CLI, layout, window, input |
+| Editor | `rustory-edit` | Document, typed operations, undo, validation. No UI, no pixels |
+| Application | `apps/rustory`, `apps/rustory-editor` | CLI and player; GUI editor. Both are front-ends over `rustory-edit` |
 
 Dependencies point one way: everything depends on `rustory-core`; the core
 depends on nothing above it.
@@ -128,7 +156,7 @@ Requires Rust 1.85+ (edition 2024) and, on Windows, the MSVC toolchain.
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 124 tests; render tests skip without a GPU
+cargo test --workspace      # 156 tests; render tests skip without a GPU
 cargo run -p rustory -- probe
 ```
 

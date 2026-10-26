@@ -19,17 +19,20 @@ gameplay system holds any.
 
 ---
 
-## 2. Four crates and one dependency direction
+## 2. Crates and one dependency direction
 
 ```
-        apps/rustory
+        apps/rustory-editor   (GUI: egui front-end)
+        apps/rustory          (CLI, player, agent interface)
+        ├── rustory-edit       (operations: shared by both front-ends)
         ├── rustory-render
         ├── rustory-script
         ├── rustory-gameplay-timer
         ├── rustory-gameplay-quiz
         └── rustory-core
                 ▲
-   rustory-render ─┘        (depends on core's types; core does not depend on it)
+   rustory-edit ─┘
+   rustory-render ─┘
    rustory-script ─┘
    rustory-gameplay-timer ─┘
    rustory-gameplay-quiz ──┘
@@ -42,6 +45,7 @@ it. Cargo's dependency declarations enforce this, not discipline.
 |---|---|---|
 | `rustory-core` | Story model, state machine, gameplay contract | Render, open windows, touch the filesystem |
 | `rustory-script` | RON parsing, structural validation | Play, advance state |
+| `rustory-edit` | Document, typed operations, undo, validation | Know about a UI, or about pixels |
 | `rustory-render` | Draw list → pixels | Know what a story, actor or choice is |
 | `rustory-gameplay-timer` | One concrete gameplay system | Read the stage or the story graph |
 | `rustory-gameplay-quiz` | A second one, with state no counter could hold | Ditto |

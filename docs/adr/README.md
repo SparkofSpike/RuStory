@@ -16,6 +16,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0005](0005-wasm-vs-upper-ui.md) | WASM sandbox vs upper-layer UI: split by what each can break | Proposed | Which gameplay goes where? |
 | [0006](0006-save-and-rollback.md) | Save and rollback: snapshots over event replay | Accepted, implemented | How does gameplay state enter a save? |
 | [0007](0007-fonts-are-the-projects-choice.md) | Fonts are the project's responsibility, not the engine's | Accepted, implemented | Where do typefaces come from? |
+| [0008](0008-editor-architecture.md) | The editor is an operation layer with two front-ends | Accepted, implemented | How do a GUI and an agent edit the same story? |
 
 ## Status meanings
 

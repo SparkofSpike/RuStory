@@ -1,0 +1,130 @@
+# ADR 0008 — The editor is an operation layer with two front-ends
+
+- **Status**: Accepted, implemented
+- **Date**: 2026-10-27
+
+---
+
+## Context
+
+The project goal is an editor that is comfortable for a person and usable by an agent,
+with a GUI for humans and a CLI for agents. The naive reading is "build a GUI, then add
+a CLI that does the same things" — two programs that agree because someone keeps them
+agreeing.
+
+That is how editors rot. The GUI gets a feature on Tuesday; the CLI gets it in a
+quarter, or never, or differently. An agent then cannot do what a person can, and the
+promise quietly becomes false.
+
+## Options
+
+### A. GUI first, CLI as a wrapper around the GUI
+
+Impossible to do well: driving a UI from a script means synthesising clicks, and the
+result is as reliable as screen coordinates.
+
+### B. Two independent implementations
+
+Both are real, both are maintained, and they drift. Every rule about the format has two
+copies, one of which is stale.
+
+### C. One operation layer, two front-ends
+
+A crate defines the document, the operations, and the guarantees. The GUI and the CLI
+both construct operations and hand them to the same executor.
+
+## Decision
+
+**Adopt C.** [`rustory-edit`](../../crates/rustory-edit) is that layer.
+
+```
+        rustory-edit
+        ├── Document   story + path
+        ├── EditOp     every change, one enum
+        └── Editor     apply · validate · rollback · undo · save
+                ▲
+      ┌─────────┴─────────┐
+ rustory-editor        rustory (CLI)
+   (egui GUI)          (ops · inspect · edit)
+```
+
+## The guarantee that makes agents safe
+
+`Editor::apply` returns `Ok` with the change in place, or `Err` with the document
+**exactly** as it was. No partial edits, ever. This is implemented by snapshotting
+before the operation and restoring on any failure — including a failure of the story's
+own validation.
+
+A human sees the screen change and reacts. An agent needs "it failed" to mean nothing
+happened, or it will build on a state that does not exist.
+
+The same reasoning produced two refusals rather than conveniences:
+
+- **Deleting a referenced node is refused**, naming every referrer, instead of
+  repointing references automatically. Guessing where the author meant them to go is
+  worse than saying it cannot be done.
+- **Deleting the last choice is refused** instead of silently converting the exit to
+  `End`. That would change what the story does without saying so.
+
+## Why egui
+
+- It is immediate-mode, so the editor's state *is* the UI's state. No widget tree to keep
+  in sync with the document, which is the class of bug that makes editors feel unreliable.
+- `egui-wgpu` 0.37 takes `wgpu ^30`, the exact version `rustory-render` uses. Sharing one
+  device means the preview can render with the engine itself.
+- No C++ toolchain, no bindings, no second build system.
+
+The rejected alternative was a web front-end (Tauri). It would give better typography and
+a real layout engine, but it also puts a second language and a browser engine between the
+editor and the document — for a tool whose value is that the operations are explicit.
+
+## The preview is the engine, not a mock-up
+
+`rustory-editor` builds the same `Frame` that `rustory play` renders, using
+`rustory_render::Renderer`. A preview that approximated the output would be worse than
+none, because it would be trusted.
+
+Layout code is duplicated between `apps/rustory/src/scene.rs` and
+`apps/rustory-editor/src/preview.rs`. That duplication is a **known cost**, recorded here
+rather than hidden: the alternative is hoisting layout into `rustory-render`, which would
+put story concepts into the renderer and break invariant 5 of the architecture. The
+mitigation is that both call the same `rustory_render` primitives, so an engine change
+shows up in both, and the duplication is layout constants only — no game logic.
+
+This is the one place the architecture has a seam the compiler does not check. If a third
+front-end appears, layout should move into `rustory-edit` as a "scene description"
+intermediate, and this ADR should be superseded.
+
+## What the GUI deliberately does not do
+
+- **No file picker.** The story path comes from the command line. A native dialog is a
+  platform dependency for a convenience; it is a known gap, not a hidden one.
+- **No feature that is not an `EditOp`.** Anything the GUI can do, the CLI can do. If a
+  feature is not expressible as an operation, it belongs in the operations first.
+- **No gameplay outcome mapping editor.** The panel shows the count and points at
+  `rustory edit --op SetExit`, because the mapping editor needs a table widget that has
+  not been built. Saying so in the UI is better than a form that silently cannot express
+  what the format allows.
+
+## Verification
+
+- `cargo test --workspace` — 156 tests. `rustory-edit` contributes 32 of them, covering
+  every operation, every refusal, batch rollback, undo/redo, and a lossless save/reload
+  round-trip including non-ASCII text.
+- `rustory ops --json` prints the operation vocabulary with `changes_structure` flags.
+- `rustory inspect --json` prints the story as data with the same schema on success and
+  failure.
+- `rustory edit` refuses a batch atomically; `--dry-run` proves the file is untouched.
+- `rustory-editor --check <story>` renders one preview frame without a window and fails
+  if the result looks blank — the regression test a GUI otherwise cannot have.
+- The screenshots in `shots/editor.png` were produced by running the real binary.
+
+## Known gaps
+
+- No file picker, no save-as dialog.
+- Gameplay outcome mappings are edited through the CLI only.
+- The preview re-renders on every document change but not on window resize (the logical
+  resolution is fixed, so this is only visible as letterboxing differences).
+- Native-texture display was attempted and abandoned: the texture the engine drew into
+  and the one egui sampled were not the same object. The readback path is slower per
+  edit and reliable. Recorded so nobody re-attempts it without new information.
