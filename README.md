@@ -19,15 +19,28 @@ The whole design rests on one falsifiable statement:
 
 > Adding a gameplay system does not change the narrative core.
 
-`rustory-core` has no mention of timers, options, rounds, scores or correctness.
-`crates/rustory-gameplay-timer` implements all of that in its own crate, parses
-its own config, and reports outcome keys that the *script* maps to nodes.
+Two systems ship as evidence, chosen to bracket the range of the contract:
 
-The entire integration is one line:
+- `crates/rustory-gameplay-timer` — a countdown over a list of options.
+- `crates/rustory-gameplay-quiz` — several rounds, a growing list of answers, and
+  a verdict that only exists at the end.
+
+`rustory-core` mentions neither. It has no notion of timers, options, rounds,
+scores or correctness. Each crate parses its own config from an opaque value,
+reports outcome keys, and lets the *script* decide where those keys lead. Each
+persists its own state into a save through the same trait.
+
+The entire integration is two lines:
 
 ```rust
 registry.register(Box::new(TimedChoice::new()));
+registry.register(Box::new(Quiz::new()));
 ```
+
+The quiz is the stronger half of the argument. A countdown can almost be rebuilt
+from a few shared counters, so a critic could say the contract only accommodates
+simple things. A quiz cannot: it needs a cursor and a list, which is why it also
+proves that a save can carry state the core has never heard of.
 
 If adding a system ever requires editing `rustory-core`, the contract is wrong
 and the contract gets fixed — not the core.
@@ -40,20 +53,24 @@ and the contract gets fixed — not the core.
 - Background, sprites and typewriter dialogue
 - Click to advance; first click completes the line, second advances
 - Branching choices
-- Gameplay handover: a timed choice takes control, then returns it
+- Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
+- **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 83 tests, including offscreen GPU renders that assert where things land
+- 116 tests, including offscreen GPU renders that assert where things land
 
-Not yet: audio, save/load, WASM plugins, an authoring tool. Those have ADRs
-describing the plan, not code pretending to be one.
+Not yet: audio, rollback history, WASM plugins, an authoring tool, packaged fonts.
+Those have ADRs describing the plan, not code pretending to be one.
 
 ## Try it
 
 ```console
-$ cargo run -p rustory -- gen-assets assets      # placeholder art
-$ cargo run -p rustory -- check stories/demo.ron # parse + validate
-$ cargo run -p rustory -- play stories/demo.ron  # play it
+$ cargo run -p rustory -- gen-assets assets       # placeholder art
+$ cargo run -p rustory -- check stories/demo.ron  # parse + validate
+$ cargo run -p rustory -- play stories/demo.ron   # play it
 $ cargo run -p rustory -- shot stories/demo.ron --out frame.png --advance 4
+
+$ cargo run -p rustory -- save stories/demo.ron --advance 6 --out save.ron
+$ cargo run -p rustory -- resume stories/demo.ron save.ron --finish
 ```
 
 The demo runs without a window too:
@@ -68,9 +85,9 @@ Kai: I was waiting for you.
 
 ## Screens
 
-| Dialogue | Choice | Gameplay |
-|---|---|---|
-| ![dialogue](shots/dialogue.png) | ![choice](shots/choice.png) | ![gameplay](shots/gameplay.png) |
+| Dialogue | Choice | Timed choice | Quiz |
+|---|---|---|---|
+| ![dialogue](shots/dialogue.png) | ![choice](shots/choice.png) | ![gameplay](shots/gameplay.png) | ![quiz](shots/quiz.png) |
 
 The art is generated procedurally by `rustory gen-assets` — no binaries in the
 repository, and the code that draws it is reviewable.
@@ -86,7 +103,7 @@ borrowed.**
 | Narrative core | `rustory-core` | Story model, state machine, gameplay contract. Zero rendering dependencies |
 | Story format | `rustory-script` | RON loading, reference validation |
 | Renderer | `rustory-render` | Draw list → pixels on `wgpu`. Knows nothing about stories |
-| Gameplay | `rustory-gameplay-timer` | One system, proving the extension model |
+| Gameplay | `rustory-gameplay-timer`, `rustory-gameplay-quiz` | Two systems bracketing the range: a countdown, and state no counter could hold |
 | Application | `apps/rustory` | CLI, layout, window, input |
 
 Dependencies point one way: everything depends on `rustory-core`; the core
@@ -111,7 +128,7 @@ Requires Rust 1.85+ (edition 2024) and, on Windows, the MSVC toolchain.
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 83 tests; render tests skip without a GPU
+cargo test --workspace      # 116 tests; render tests skip without a GPU
 cargo run -p rustory -- probe
 ```
 

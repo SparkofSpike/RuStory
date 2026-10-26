@@ -14,7 +14,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0003](0003-gameplay-integration.md) | Gameplay integration: trait, registry, opaque config | Accepted, implemented | What shape is the gameplay API? |
 | [0004](0004-cross-system-contract.md) | Cross-system contract: events outward, narrow state inward | Accepted, implemented | How do narrative and gameplay share state? |
 | [0005](0005-wasm-vs-upper-ui.md) | WASM sandbox vs upper-layer UI: split by what each can break | Proposed | Which gameplay goes where? |
-| [0006](0006-save-and-rollback.md) | Save and rollback: snapshots over event replay | Proposed | How does gameplay state enter a save? |
+| [0006](0006-save-and-rollback.md) | Save and rollback: snapshots over event replay | Accepted, implemented | How does gameplay state enter a save? |
 
 ## Status meanings
 

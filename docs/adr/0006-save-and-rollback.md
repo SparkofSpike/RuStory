@@ -1,7 +1,7 @@
 # ADR 0006 — Save and rollback: snapshots over event replay
 
-- **Status**: **Proposed**, not implemented
-- **Date**: 2026-10-26
+- **Status**: Accepted, implemented
+- **Date**: 2026-10-26, revised 2026-10-27 after implementation
 - **Open question**: how does gameplay state enter a save?
 
 ---
@@ -28,17 +28,16 @@ Record every input event and replay from the beginning on load.
 
 - Good: tiny saves; rollback to any moment comes for free.
 - Bad: **replay must be perfectly deterministic.** One accumulated `f32` error, one
-  `HashMap` iteration order, one future random number and the replay diverges. The
-  more gameplay systems exist, the harder determinism is to hold. For composable
-  gameplay this is a trap.
+  `HashMap` iteration order, one future random number and the replay diverges. With
+  third-party gameplay systems this is impossible to hold, and a save that diverges
+  silently is worse than one that is a few kilobytes larger.
 
 ### B. State snapshot
 
-Serialise `Narrative`'s complete state directly.
+Serialise `Narrative`'s complete state.
 
-- Good: loading restores everything, with no dependence on history; results are
-  necessarily identical.
-- Bad: larger saves; each gameplay system needs its own serialisation format.
+- Good: loading restores everything, with no dependence on history.
+- Bad: larger saves; each gameplay system needs a way to serialise itself.
 
 ### C. Snapshot plus a ring of history
 
@@ -46,90 +45,121 @@ Current state as a snapshot; rollback via the last N lightweight snapshots.
 
 ## Decision
 
-**Adopt C: B as the foundation, with a ring buffer of historical snapshots for
-rollback.**
+**Adopt C: B as the foundation, with rollback as a ring of snapshots.**
 
-## Reasoning
+For the gameplay half, **the trait gains two methods** rather than requiring
+systems to compress their state into shared counters.
 
-1. **Determinism is a scarce resource, and snapshots do not need it.** Writing
-   `SystemTime::now()`, iterating a `HashMap`, or accumulating floats all come
-   naturally inside a gameplay system. Event replay would forbid all of it and
-   require review to keep it forbidden — far more expensive than a few extra
-   kilobytes.
-2. **Players notice load reliability, not save size.** One intermittent
-   mis-restore ruins the experience; a save that is 20KB larger goes unnoticed.
-3. **Rollback only needs a few steps, not all of history.** Visual novel rollback
-   typically reaches the previous choice, so keeping the last 16 choice-point
-   snapshots is enough.
+## Why the trait, and not "rebuild from Stats"
 
-## What has to be serialised
+The first draft of this ADR preferred rebuilding gameplay state from `Stats`, on
+the grounds that a new system then would not have to implement anything. That was
+rejected after the second gameplay system was written.
 
-```
-SaveState {
-    version: u32,                    // format version, mandatory
-    story_id: String,                // story identity plus checksum
-    cursor: NodeId,
-    beat_index: usize,
-    mode: SavedMode,                 // Revealing/AwaitingAdvance/Choice/Suspended/Finished
-    revealed: usize,                 // reveal progress, so loading resumes mid-line
-    stage: { background, actors },
-    stats: BTreeMap<String, i32>,
-    gameplay: Option<GameplaySave>,  // see below
+A quiz holds a growing list of answers and a cursor into a list of rounds. It
+cannot be rebuilt from `Stats`, and trying would mean inventing an encoding on top
+of a map of integers — exactly the dynamically shaped improvisation this project
+exists to avoid. More importantly, a rule that works only for simple systems
+contradicts the goal of being an engine other people build on: the first person to
+write something stateful would hit a wall the architecture put there.
+
+So `GameplaySystem` gained:
+
+```rust
+fn save(&self) -> Result<Option<ron::Value>, CoreError> { Ok(None) }
+fn restore(&mut self, state: Option<&ron::Value>) -> Result<(), CoreError> {
+    match state {
+        None => Ok(()),
+        Some(_) => Err(/* refuses state it cannot use */),
+    }
 }
 ```
 
-### The hard part: gameplay state
+Both have defaults, so neither breaks existing systems, and neither forces a
+stateless system to write boilerplate. But a system that needs state can carry
+anything it can serialise.
 
-`GameplaySystem` is a trait object, and the core has no idea how to serialise it.
+The default `restore` **rejects** state rather than ignoring it. A save that
+carries state for a system that never learned to restore it means the save and the
+code disagree; silently discarding it would resume the scene with invisible
+progress lost.
 
-Two approaches:
+## What lives in a save
 
-- **Approach 1**: add `fn save(&self) -> ron::Value` and
-  `fn restore(&mut self, value)` to the trait. Cost: every system implements it, in
-  a format of its own choosing.
-- **Approach 2**: **rebuild from the narrative side.** The save records only "which
-  node was suspended plus `Stats`"; on load the system is `begin`-ed again and
-  progress is restored from `Stats`.
+```
+SaveState {
+    version: u32,                    // format version, checked on load
+    story_checksum: u64,             // FNV-1a over the story's RON form
+    cursor: NodeId,
+    beat_index: usize,
+    mode: Mode,                      // Revealing / AwaitingAdvance / Choice / Suspended / Finished
+    revealed: usize,                 // grapheme clusters of the current line
+    stage: Stage,                    // background and actors
+    stats: Stats,
+    gameplay: Option<GameplaySave>,  // { system, state: Option<ron::Value> }
+}
+```
 
-**Approach 2 is preferred**, because it stays additive — a new system does not have
-to implement a save interface. The price is that a system must be reconstructible
-from `Stats`. The timed choice satisfies this: remaining time follows from an
-`elapsed_ms` counter.
+`version` and `story_checksum` are what make a load safe. Without the checksum,
+loading a save against an edited script resumes at a node whose beats have shifted
+under the player, which surfaces as a scene that makes no sense rather than as an
+error.
 
-**But there is a hard limit**: if a system's state cannot be compressed into
-`Stats` — a randomly generated board, say — approach 2 does not hold. At that point
-approach 1 becomes mandatory, and **the ADR must explain why that system needs its
-own save format**.
+## Validation on load
 
-This is a genuine open question, not something to paper over.
+Every check exists because the alternative is a silent mis-restore. A refused load
+is recoverable; a corrupted one looks like an engine bug.
+
+| Check | Failure |
+|---|---|
+| Version matches | `SaveVersionMismatch` |
+| Story checksum matches | `SaveStoryMismatch` |
+| Node exists | `SaveNodeMissing` |
+| Beat index within the node | `SaveBeatOutOfRange` |
+| Mode fits the node's exit (a pending choice needs a `Choose` exit, a suspension needs a matching `Gameplay` exit) | `SaveBeatOutOfRange` / `SaveGameplayMismatch` |
+| Suspended mode carries gameplay state | `GameplayRestoreFailed` |
+| Non-suspended mode carries none | `GameplayRestoreFailed` |
+
+One deliberate exception: a `revealed` count beyond the current line is **clamped**
+rather than rejected. The worst case is a line that shows slightly less than it did
+before, which the player cannot distinguish from a slow reveal — refusing would
+throw away a playthrough over a cosmetic difference.
 
 ## Consequences
 
 **Gained**
 
 - Load reliability does not depend on whether a system is deterministic.
-- Rolling back to the previous choice is an O(1) restore.
+- Gameplay systems store arbitrary state without the core learning about them.
+- Saves are readable RON, so "it restored into the wrong scene" is answerable by
+  reading the file.
 
 **Paid**
 
-- Save size grows with the number of systems and the size of the stage.
-- The `version` field and migration logic must be maintained. **Rejecting a version
-  mismatch on load is safer than guessing.**
-- `story_id` plus a checksum is mandatory: loading an old save against a new script
-  would otherwise misalign silently.
+- Save size grows with the number of systems and the stage.
+- The `version` field and migration logic must be maintained.
+- `GameplaySystem::save` returning `None` for a system that *does* hold hidden
+  state fails silently — the save simply resumes with a fresh system. The doc
+  comment states the rule plainly: if `begin` cannot reproduce it, it belongs in
+  `save`.
 
-**Explicitly out of scope**
+**Explicitly not done**
 
-- Cross-story state inheritance. That needs an explicit migration language, far
-  beyond the MVP.
+- Rollback history. The snapshot type supports it, but no ring buffer exists yet;
+  rolling back needs UI for choosing a point, not just storage.
+- Cross-story state inheritance. That needs an explicit migration language.
 
-## Still undecided
+## Verification
 
-- Format: RON (readable, diffable, debuggable) vs bincode (small, fast).
-  **RON is preferred**, because saves are investigated by hand far more often than
-  they are performance-critical.
-- How many historical snapshots to keep: 16 tentatively, pending a memory
-  measurement.
-- Whether to record "text already seen" for skip-read mode. It is standard for the
-  genre but significantly enlarges the save (a node-by-beat bitmap). Suggestion:
-  keep it in a separate file, decoupled from the main save.
+Implemented and covered by tests:
+
+- `crates/rustory-core/tests/save.rs` — 15 tests: mid-line resume, stage and
+  counters, pending choice, finished story, checksum and version rejection, beat
+  and mode mismatches, reveal clamping, stable serialisation, and a gameplay
+  system whose list state survives a save.
+- `crates/rustory-gameplay-quiz` — the system that forced this design, with its own
+  tests for a half-finished save resuming at the right round and for rejecting a
+  round index beyond the config.
+- End to end through the CLI: `rustory save stories/demo.ron --advance 6` writes a
+  save suspended in the timed choice with `remaining_ms: 5000`; `rustory resume
+  ... --finish` reaches the same ending as playing straight through.

@@ -26,11 +26,13 @@ gameplay system holds any.
         ├── rustory-render
         ├── rustory-script
         ├── rustory-gameplay-timer
+        ├── rustory-gameplay-quiz
         └── rustory-core
                 ▲
    rustory-render ─┘        (depends on core's types; core does not depend on it)
    rustory-script ─┘
    rustory-gameplay-timer ─┘
+   rustory-gameplay-quiz ──┘
 ```
 
 **Every dependency points at `rustory-core`.** The core depends on nothing above
@@ -42,6 +44,7 @@ it. Cargo's dependency declarations enforce this, not discipline.
 | `rustory-script` | RON parsing, structural validation | Play, advance state |
 | `rustory-render` | Draw list → pixels | Know what a story, actor or choice is |
 | `rustory-gameplay-timer` | One concrete gameplay system | Read the stage or the story graph |
+| `rustory-gameplay-quiz` | A second one, with state no counter could hold | Ditto |
 
 ---
 
@@ -76,6 +79,23 @@ node exit: Gameplay(spec)
 
 The load-bearing detail: **the core never parses the config and never
 interprets the key.**
+
+### 3.3 Saving and loading
+
+```
+Narrative::save(&registry)
+  → copies cursor, beat index, mode, reveal count, stage, stats
+  → if suspended, asks that one system for its state (opaque ron::Value)
+  → SaveState { version, story_checksum, … }
+
+Narrative::from_save(story, &save, &mut registry)
+  → refuses on version, checksum, node, beat index or mode/exit mismatch
+  → clamps the reveal count to the current line
+  → if suspended: begin(config) then restore(state)
+```
+
+Loading produces **no events**: it is a restore, not a traversal, and a renderer
+replaying node-entry events would redraw a scene the player is already looking at.
 
 ---
 
@@ -183,12 +203,19 @@ GPU is an environment fact, not a regression.
 
 ## 8. Known gaps
 
-- **No save system** (ADR 0006 is still a proposal).
+- **No rollback history.** `SaveState` supports it, but nothing keeps a ring of
+  past snapshots yet — that needs UI for picking a point, not just storage.
 - **No audio.**
 - **No channel for gameplay to read narrative state.** A system cannot tell which
   dialogue round it is in; it has to be passed that through config. When this is
   needed, add a read-only snapshot — do not open up `Narrative`.
 - **`--advance` is unintuitive.** It counts "one interaction", and one
   interaction can span two states (finishing a line, then advancing a beat).
+  Inside a gameplay system it plays the whole thing to completion, always choosing
+  the first option.
 - **A bad gameplay config surfaces only when playback reaches that node**, not at
   load time.
+- **Fonts come from the host system.** `FontSystem::new()` reads whatever the OS
+  provides. Fine on a development machine, wrong for distribution: a player
+  without the font sees replacement boxes. Packaging fonts is a prerequisite for
+  shipping, not a nicety.
