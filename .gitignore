@@ -8,3 +8,8 @@
 
 # Default output of `rustory shot`.
 /shot.png
+
+# Local handoff brief. Kept out of the repository on purpose: it carries planning
+# notes and machine-specific context, and it would go stale against the ADRs.
+# Design decisions belong in docs/adr/, where they are versioned and reviewed.
+/HANDOFF.md
