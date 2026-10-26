@@ -128,13 +128,7 @@ fn sprite(body: Rgba, accent: Rgba) -> Rgba8Image {
     for y in 180..620 {
         let half = Canvas::torso_half_width(y as f32, 180.0, 620.0, 118.0, 96.0);
         let cx = 210.0;
-        canvas.fill_rect(
-            (cx - half) as i32,
-            y,
-            (half * 2.0) as i32,
-            1,
-            body,
-        );
+        canvas.fill_rect((cx - half) as i32, y, (half * 2.0) as i32, 1, body);
     }
 
     // Neck.
@@ -166,7 +160,10 @@ pub fn generate(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>, ImageError> {
         ("bg_classroom.png", background()),
         (
             "yuki_smile.png",
-            sprite(Rgba::rgba(232, 224, 236, 255), Rgba::rgba(120, 96, 160, 255)),
+            sprite(
+                Rgba::rgba(232, 224, 236, 255),
+                Rgba::rgba(120, 96, 160, 255),
+            ),
         ),
         (
             "kai_neutral.png",

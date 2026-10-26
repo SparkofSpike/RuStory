@@ -188,7 +188,8 @@ mod tests {
 
     #[test]
     fn gradient_runs_top_to_bottom() {
-        let image = Rgba8Image::vertical_gradient(1, 3, Rgba::rgb(0, 0, 0), Rgba::rgb(255, 255, 255));
+        let image =
+            Rgba8Image::vertical_gradient(1, 3, Rgba::rgb(0, 0, 0), Rgba::rgb(255, 255, 255));
         assert_eq!(image.pixel(0, 0).unwrap().r, 0);
         assert_eq!(image.pixel(0, 2).unwrap().r, 255);
         assert_eq!(image.pixel(0, 1).unwrap().r, 128);

@@ -288,26 +288,31 @@ impl Narrative {
         let spec = spec.clone();
         let system_id = spec.system.clone();
 
-        let system = registry
-            .get_mut(&system_id)
-            .ok_or_else(|| CoreError::UnknownGameplaySystem {
-                node: self.cursor.to_string(),
-                system: system_id.to_string(),
-            })?;
+        let system =
+            registry
+                .get_mut(&system_id)
+                .ok_or_else(|| CoreError::UnknownGameplaySystem {
+                    node: self.cursor.to_string(),
+                    system: system_id.to_string(),
+                })?;
 
         if !self.gameplay_begun {
             system.begin(spec.config.as_ref())?;
             self.gameplay_begun = true;
         }
 
-        let mut ctx = GameplayContext {
-            dt_ms,
-            inputs,
-            stats: &mut self.stats,
+        // The outcome is collected before `resolve_gameplay` runs so the borrow
+        // of `self.stats` ends here rather than being dropped explicitly.
+        let outcome = {
+            let mut ctx = GameplayContext {
+                dt_ms,
+                inputs,
+                stats: &mut self.stats,
+            };
+            system.step(&mut ctx)
         };
 
-        if let Some(outcome) = system.step(&mut ctx) {
-            drop(ctx);
+        if let Some(outcome) = outcome {
             self.resolve_gameplay(&system_id, &spec, outcome)?;
         }
         Ok(())
@@ -400,8 +405,9 @@ impl Narrative {
                     }
                     Beat::SetBackground { image } => {
                         let image = image.clone();
-                        self.stage
-                            .apply(&Beat::SetBackground { image: image.clone() });
+                        self.stage.apply(&Beat::SetBackground {
+                            image: image.clone(),
+                        });
                         self.events
                             .push(NarrativeEvent::BackgroundChanged { image });
                         self.beat_index += 1;

@@ -26,17 +26,11 @@ pub enum NarrativeEvent {
     /// The background was replaced; `None` clears it.
     BackgroundChanged { image: Option<String> },
     /// The player is being asked to choose.
-    ChoiceOffered {
-        node: NodeId,
-        labels: Vec<String>,
-    },
+    ChoiceOffered { node: NodeId, labels: Vec<String> },
     /// The player chose; `index` refers to the offered list.
     ChoiceTaken { node: NodeId, index: usize },
     /// Control handed to a gameplay system.
-    GameplayStarted {
-        node: NodeId,
-        system: SystemId,
-    },
+    GameplayStarted { node: NodeId, system: SystemId },
     /// The gameplay system reported an outcome and control came back.
     GameplayFinished {
         node: NodeId,

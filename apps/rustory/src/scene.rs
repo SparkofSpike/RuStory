@@ -1,4 +1,4 @@
-﻿//! Translates narrative state into a draw list.
+//! Translates narrative state into a draw list.
 //!
 //! This is the only place that knows both what a story is and what a pixel is.
 //! Keeping the translation in one module means layout can change without the
@@ -148,9 +148,14 @@ impl Scene<'_> {
 
         if let Some(speaker) = line.speaker {
             frame.push_text(
-                TextItem::new(display_name(speaker.as_str()), NAME_ORIGIN.0, NAME_ORIGIN.1, NAME_SIZE)
-                    .with_color(COL_NAME)
-                    .with_wrap(DIALOGUE_BOX.width - 64.0),
+                TextItem::new(
+                    display_name(speaker.as_str()),
+                    NAME_ORIGIN.0,
+                    NAME_ORIGIN.1,
+                    NAME_SIZE,
+                )
+                .with_color(COL_NAME)
+                .with_wrap(DIALOGUE_BOX.width - 64.0),
             );
         }
 
@@ -223,9 +228,7 @@ impl Scene<'_> {
         let Some(hint) = self.hint else {
             return;
         };
-        frame.push_text(
-            TextItem::new(hint, 92.0, HEIGHT as f32 - 34.0, 18.0).with_color(COL_HINT),
-        );
+        frame.push_text(TextItem::new(hint, 92.0, HEIGHT as f32 - 34.0, 18.0).with_color(COL_HINT));
     }
 }
 
@@ -251,7 +254,7 @@ pub fn line_summary(line: &LineView<'_>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustory_core::{Beat, Choice, Exit, Node, NodeId, Story, StoryMeta, ActorId};
+    use rustory_core::{ActorId, Beat, Choice, Exit, Node, NodeId, Story, StoryMeta};
     use std::collections::BTreeMap;
 
     fn bank_with(names: &[&str]) -> TextureBank {
@@ -264,13 +267,7 @@ mod tests {
 
     fn talking_story(beats: Vec<Beat>, exit: Exit) -> Narrative {
         let mut nodes = BTreeMap::new();
-        nodes.insert(
-            NodeId::from("a"),
-            Node {
-                beats,
-                exit,
-            },
-        );
+        nodes.insert(NodeId::from("a"), Node { beats, exit });
         Narrative::new(Story {
             meta: StoryMeta::default(),
             start: NodeId::from("a"),
@@ -396,11 +393,7 @@ mod tests {
         }
         .build();
 
-        let sprites: Vec<_> = frame
-            .quads
-            .iter()
-            .filter(|q| q.texture.is_some())
-            .collect();
+        let sprites: Vec<_> = frame.quads.iter().filter(|q| q.texture.is_some()).collect();
         assert_eq!(sprites.len(), 2);
 
         // Actors are stored in a map keyed by id, so iteration order is name
@@ -471,12 +464,10 @@ mod tests {
     #[test]
     fn a_gameplay_prompt_gets_its_own_band_above_the_scene() {
         let mut narrative = talking_story(
-            vec![
-                Beat::Say {
-                    speaker: None,
-                    text: "go".into(),
-                },
-            ],
+            vec![Beat::Say {
+                speaker: None,
+                text: "go".into(),
+            }],
             Exit::Gameplay {
                 spec: rustory_core::GameplaySpec {
                     system: rustory_core::SystemId::from("test"),

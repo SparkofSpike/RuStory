@@ -23,6 +23,9 @@ impl Rgba {
         Self { r, g, b, a: 255 }
     }
 
+    // Shares its name with the type on purpose: `Rgba::rgba(..)` reads better at
+    // call sites than a disambiguated alternative would.
+    #[allow(clippy::self_named_constructors)]
     #[must_use]
     pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
@@ -266,8 +269,15 @@ mod tests {
     #[test]
     fn a_frame_counts_its_primitives() {
         let mut frame = Frame::new(1280, 720);
-        assert_eq!(frame.primitive_count(), 0, "clear colour is not a primitive");
-        frame.push_quad(Quad::solid(Rect::new(0.0, 0.0, 10.0, 10.0), Rgba::rgb(1, 2, 3)));
+        assert_eq!(
+            frame.primitive_count(),
+            0,
+            "clear colour is not a primitive"
+        );
+        frame.push_quad(Quad::solid(
+            Rect::new(0.0, 0.0, 10.0, 10.0),
+            Rgba::rgb(1, 2, 3),
+        ));
         frame.push_text(TextItem::new("hi", 0.0, 0.0, 20.0));
         assert_eq!(frame.primitive_count(), 2);
     }

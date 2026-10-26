@@ -205,8 +205,7 @@ mod tests {
 
     fn demo() -> Story {
         let text = std::fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../stories/demo.ron"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../stories/demo.ron"),
         )
         .expect("demo script is in the repository");
         rustory_script::parse_story(&text, "demo.ron").expect("demo script is valid")

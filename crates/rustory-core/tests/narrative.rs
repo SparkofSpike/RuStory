@@ -1,4 +1,4 @@
-﻿//! Behavioural tests for the narrative state machine.
+//! Behavioural tests for the narrative state machine.
 //!
 //! These use only the public API, so they double as a check that the crate is
 //! actually usable from outside — a doctest-shaped contract test.
@@ -250,10 +250,7 @@ fn choices_branch_to_the_selected_node() {
     narrative.choose(1).expect("choose");
     assert_eq!(narrative.cursor().as_str(), "right");
     narrative.tick(1000, INSTANT);
-    assert_eq!(
-        narrative.line().map(|l| l.visible),
-        Some("you went right")
-    );
+    assert_eq!(narrative.line().map(|l| l.visible), Some("you went right"));
 }
 
 #[test]
@@ -408,13 +405,14 @@ impl GameplaySystem for Countdown {
             self.ticks_left = 1;
             return Ok(());
         };
-        self.ticks_left = value
-            .clone()
-            .into_rust::<u32>()
-            .map_err(|_| CoreError::GameplayFailed {
-                system: self.id().to_string(),
-                message: "config must be an integer".into(),
-            })?;
+        self.ticks_left =
+            value
+                .clone()
+                .into_rust::<u32>()
+                .map_err(|_| CoreError::GameplayFailed {
+                    system: self.id().to_string(),
+                    message: "config must be an integer".into(),
+                })?;
         self.began_with = Some(self.ticks_left);
         Ok(())
     }

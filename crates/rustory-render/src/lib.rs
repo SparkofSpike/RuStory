@@ -37,7 +37,10 @@ pub fn probe_gpu() -> Result<String, String> {
     .map_err(|e| format!("no usable GPU adapter: {e}"))?;
 
     let info = adapter.get_info();
-    Ok(format!("{} [{} / {:?}]", info.name, info.driver, info.backend))
+    Ok(format!(
+        "{} [{} / {:?}]",
+        info.name, info.driver, info.backend
+    ))
 }
 
 /// Probes the text stack: font discovery.

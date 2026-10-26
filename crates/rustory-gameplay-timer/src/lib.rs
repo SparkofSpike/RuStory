@@ -1,4 +1,4 @@
-﻿//! A timed choice: the reference implementation of a RuStory gameplay system.
+//! A timed choice: the reference implementation of a RuStory gameplay system.
 //!
 //! It exists to prove a specific claim — that a gameplay system can be added
 //! without editing the narrative core. Nothing in `rustory-core` mentions
@@ -76,7 +76,9 @@ impl TimerConfig {
         let Some(value) = value else {
             return Err(TimerConfigError::Missing);
         };
-        let config: Self = value.clone().into_rust::<Self>()
+        let config: Self = value
+            .clone()
+            .into_rust::<Self>()
             .map_err(|err| TimerConfigError::Parse(err.to_string()))?;
 
         if config.options.is_empty() {
@@ -216,7 +218,11 @@ mod tests {
         .expect("test config parses")
     }
 
-    fn ctx<'a>(dt_ms: u32, inputs: &'a [GameplayInput], stats: &'a mut Stats) -> GameplayContext<'a> {
+    fn ctx<'a>(
+        dt_ms: u32,
+        inputs: &'a [GameplayInput],
+        stats: &'a mut Stats,
+    ) -> GameplayContext<'a> {
         GameplayContext {
             dt_ms,
             inputs,
@@ -227,10 +233,16 @@ mod tests {
     #[test]
     fn picking_the_right_option_reports_correct() {
         let mut system = TimedChoice::new();
-        system.begin(Some(&config_value())).expect("config is valid");
+        system
+            .begin(Some(&config_value()))
+            .expect("config is valid");
         let mut stats = Stats::default();
 
-        let outcome = system.step(&mut ctx(16, &[GameplayInput::Select { index: 1 }], &mut stats));
+        let outcome = system.step(&mut ctx(
+            16,
+            &[GameplayInput::Select { index: 1 }],
+            &mut stats,
+        ));
         assert_eq!(outcome, Some(OutcomeKey::from(OUTCOME_CORRECT)));
         assert_eq!(stats.get("timed_choice.correct"), 1);
         assert_eq!(system.chosen(), Some(1));
@@ -239,10 +251,16 @@ mod tests {
     #[test]
     fn picking_a_wrong_option_reports_wrong_without_counting_a_success() {
         let mut system = TimedChoice::new();
-        system.begin(Some(&config_value())).expect("config is valid");
+        system
+            .begin(Some(&config_value()))
+            .expect("config is valid");
         let mut stats = Stats::default();
 
-        let outcome = system.step(&mut ctx(16, &[GameplayInput::Select { index: 0 }], &mut stats));
+        let outcome = system.step(&mut ctx(
+            16,
+            &[GameplayInput::Select { index: 0 }],
+            &mut stats,
+        ));
         assert_eq!(outcome, Some(OutcomeKey::from(OUTCOME_WRONG)));
         assert_eq!(stats.get("timed_choice.correct"), 0);
         assert_eq!(stats.get("timed_choice.attempts"), 1);
@@ -251,7 +269,9 @@ mod tests {
     #[test]
     fn running_out_of_time_reports_timeout() {
         let mut system = TimedChoice::new();
-        system.begin(Some(&config_value())).expect("config is valid");
+        system
+            .begin(Some(&config_value()))
+            .expect("config is valid");
         let mut stats = Stats::default();
 
         assert_eq!(system.step(&mut ctx(400, &[], &mut stats)), None);
@@ -265,11 +285,17 @@ mod tests {
     #[test]
     fn an_answer_on_the_expiry_frame_counts_as_in_time() {
         let mut system = TimedChoice::new();
-        system.begin(Some(&config_value())).expect("config is valid");
+        system
+            .begin(Some(&config_value()))
+            .expect("config is valid");
         let mut stats = Stats::default();
 
         system.step(&mut ctx(999, &[], &mut stats));
-        let outcome = system.step(&mut ctx(999, &[GameplayInput::Select { index: 1 }], &mut stats));
+        let outcome = system.step(&mut ctx(
+            999,
+            &[GameplayInput::Select { index: 1 }],
+            &mut stats,
+        ));
         assert_eq!(
             outcome,
             Some(OutcomeKey::from(OUTCOME_CORRECT)),
@@ -280,10 +306,16 @@ mod tests {
     #[test]
     fn an_option_index_this_system_never_showed_is_ignored() {
         let mut system = TimedChoice::new();
-        system.begin(Some(&config_value())).expect("config is valid");
+        system
+            .begin(Some(&config_value()))
+            .expect("config is valid");
         let mut stats = Stats::default();
 
-        let outcome = system.step(&mut ctx(16, &[GameplayInput::Select { index: 9 }], &mut stats));
+        let outcome = system.step(&mut ctx(
+            16,
+            &[GameplayInput::Select { index: 9 }],
+            &mut stats,
+        ));
         assert_eq!(outcome, None, "must not resolve on an impossible index");
         assert_eq!(system.chosen(), None);
     }
@@ -297,8 +329,8 @@ mod tests {
 
     #[test]
     fn a_correct_index_beyond_the_option_list_is_rejected() {
-        let bad: ron::Value = ron::from_str(r#"(duration_ms: 100, options: ["a"], correct: 5)"#)
-            .expect("parses");
+        let bad: ron::Value =
+            ron::from_str(r#"(duration_ms: 100, options: ["a"], correct: 5)"#).expect("parses");
         let mut system = TimedChoice::new();
         let err = system.begin(Some(&bad)).expect_err("must reject");
         assert!(matches!(err, CoreError::GameplayFailed { .. }));
@@ -307,9 +339,15 @@ mod tests {
     #[test]
     fn cancel_clears_everything_so_the_next_begin_is_clean() {
         let mut system = TimedChoice::new();
-        system.begin(Some(&config_value())).expect("config is valid");
+        system
+            .begin(Some(&config_value()))
+            .expect("config is valid");
         let mut stats = Stats::default();
-        system.step(&mut ctx(16, &[GameplayInput::Select { index: 0 }], &mut stats));
+        system.step(&mut ctx(
+            16,
+            &[GameplayInput::Select { index: 0 }],
+            &mut stats,
+        ));
 
         system.cancel();
         assert!(system.config().is_none());
@@ -320,7 +358,9 @@ mod tests {
     #[test]
     fn the_prompt_reports_the_time_left_and_the_options() {
         let mut system = TimedChoice::new();
-        system.begin(Some(&config_value())).expect("config is valid");
+        system
+            .begin(Some(&config_value()))
+            .expect("config is valid");
         let prompt = system.prompt().expect("prompt");
         assert!(prompt.contains("1.0s"), "got {prompt}");
         assert!(prompt.contains("1. a"), "options must be visible: {prompt}");

@@ -53,7 +53,6 @@ impl Stats {
         *entry = entry.saturating_add(delta);
     }
 
-    #[must_use]
     pub fn iter(&self) -> impl Iterator<Item = (&str, i32)> {
         self.values.iter().map(|(k, v)| (k.as_str(), *v))
     }
@@ -135,10 +134,7 @@ impl GameplayRegistry {
 
     /// Register a system. Returns the previous system under the same id if one
     /// was already present, so double registration is visible rather than silent.
-    pub fn register(
-        &mut self,
-        system: Box<dyn GameplaySystem>,
-    ) -> Option<Box<dyn GameplaySystem>> {
+    pub fn register(&mut self, system: Box<dyn GameplaySystem>) -> Option<Box<dyn GameplaySystem>> {
         self.systems.insert(system.id(), system)
     }
 
@@ -147,7 +143,6 @@ impl GameplayRegistry {
         self.systems.contains_key(id)
     }
 
-    #[must_use]
     pub fn ids(&self) -> impl Iterator<Item = &SystemId> {
         self.systems.keys()
     }

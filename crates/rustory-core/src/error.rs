@@ -27,7 +27,9 @@ pub enum CoreError {
     #[error("node `{node}` is not waiting for a gameplay verdict")]
     NotAwaitingGameplay { node: String },
 
-    #[error("gameplay system `{system}` reported outcome `{outcome}`, which node `{node}` does not handle")]
+    #[error(
+        "gameplay system `{system}` reported outcome `{outcome}`, which node `{node}` does not handle"
+    )]
     UnmappedOutcome {
         node: String,
         system: String,

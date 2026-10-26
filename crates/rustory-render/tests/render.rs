@@ -9,7 +9,7 @@
 //! exact byte values would encode a colour-space detail into the test instead of
 //! the property being tested.
 
-use rustory_render::{Frame, Quad, Rect, Rgba, Renderer, TextItem};
+use rustory_render::{Frame, Quad, Rect, Renderer, Rgba, TextItem};
 
 /// Skip rather than fail when the machine has no usable adapter.
 ///
@@ -41,10 +41,7 @@ fn an_empty_frame_renders_its_clear_colour() {
     assert_eq!(image.width(), 64);
     assert_eq!(image.height(), 64);
     let centre = image.pixel(32, 32).expect("pixel in range");
-    assert!(
-        luminance(centre) < 30,
-        "cleared to black, got {centre:?}"
-    );
+    assert!(luminance(centre) < 30, "cleared to black, got {centre:?}");
 }
 
 #[test]
@@ -126,7 +123,10 @@ fn text_draws_pixels_inside_its_bounds() {
             }
         }
     }
-    assert!(bright > 50, "expected rasterized glyphs, found {bright} bright pixels");
+    assert!(
+        bright > 50,
+        "expected rasterized glyphs, found {bright} bright pixels"
+    );
 
     let empty_area = image.pixel(300, 110).expect("bottom right");
     assert!(

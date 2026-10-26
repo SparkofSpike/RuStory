@@ -17,14 +17,13 @@ use glyphon::{
 use wgpu::{
     BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingResource, BindingType, BlendState, BufferBindingType,
-    BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, DeviceDescriptor,
-    FragmentState, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor,
-    PrimitiveState, PrimitiveTopology, RenderPassColorAttachment, RenderPassDescriptor,
-    RenderPipelineDescriptor, RequestAdapterOptions, SamplerBindingType, SamplerDescriptor,
-    ShaderModuleDescriptor, ShaderSource, ShaderStages, StoreOp, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
-    TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout,
-    VertexFormat, VertexState,
+    BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, DeviceDescriptor, FragmentState,
+    LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor, PrimitiveState,
+    PrimitiveTopology, RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
+    RequestAdapterOptions, SamplerBindingType, SamplerDescriptor, ShaderModuleDescriptor,
+    ShaderSource, ShaderStages, StoreOp, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
+    VertexAttribute, VertexBufferLayout, VertexFormat, VertexState,
 };
 
 use crate::frame::{Frame, Rgba, TextureId};
@@ -318,33 +317,22 @@ impl Renderer {
         // Solid quads sample this. One texel is enough; the sampler clamps.
         let white = Rgba8Image::solid(1, 1, Rgba::rgb(255, 255, 255));
         let white_view = upload_rgba(&device, &queue, &white, "rustory white");
-        let mut bind_groups = Vec::new();
-        bind_groups.push(make_bind_group(
+        let bind_groups = vec![make_bind_group(
             &device,
             &texture_layout,
             &globals,
             &white_view,
             &sampler,
-        ));
+        )];
 
         let font_system = FontSystem::new();
         let swash_cache = SwashCache::new();
         let atlas_cache = Cache::new(&device);
         let mut atlas = TextAtlas::new(&device, &queue, &atlas_cache, TARGET_FORMAT);
-        let text_renderer = TextRenderer::new(
-            &mut atlas,
-            &device,
-            MultisampleState::default(),
-            None,
-        );
+        let text_renderer =
+            TextRenderer::new(&mut atlas, &device, MultisampleState::default(), None);
         let mut viewport = Viewport::new(&device, &atlas_cache);
-        viewport.update(
-            &queue,
-            Resolution {
-                width,
-                height,
-            },
-        );
+        viewport.update(&queue, Resolution { width, height });
         // Touching the font system here surfaces a broken font database at
         // startup rather than inside the first draw call.
         let _ = font_system.db().len();
@@ -652,12 +640,7 @@ impl Renderer {
             .quads
             .iter()
             .map(|quad| InstanceRaw {
-                rect: [
-                    quad.rect.x,
-                    quad.rect.y,
-                    quad.rect.width,
-                    quad.rect.height,
-                ],
+                rect: [quad.rect.x, quad.rect.y, quad.rect.width, quad.rect.height],
                 color: quad.color.to_array(),
                 uv: quad.uv.bounds,
             })

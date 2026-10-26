@@ -18,7 +18,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 use crate::driver;
-use crate::scene::{TextureBank, HEIGHT, WIDTH};
+use crate::scene::{HEIGHT, TextureBank, WIDTH};
 
 /// Characters per second for the typewriter. Fast enough to stay out of the way,
 /// slow enough that the reveal is visible.
@@ -57,7 +57,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     event_loop.set_control_flow(ControlFlow::Poll);
 
     let mut player = Player::new(narrative, assets);
-    event_loop.run_app(&mut player).map_err(|err| err.to_string())
+    event_loop
+        .run_app(&mut player)
+        .map_err(|err| err.to_string())
 }
 
 struct Gpu {
@@ -139,9 +141,8 @@ impl Player {
         };
         surface.configure(&device, &config);
 
-        let mut renderer =
-            Renderer::from_device(device, queue, config.width, config.height)
-                .map_err(|err| err.to_string())?;
+        let mut renderer = Renderer::from_device(device, queue, config.width, config.height)
+            .map_err(|err| err.to_string())?;
         let bank = driver::load_textures(&mut renderer, &self.assets);
 
         self.gpu = Some(Gpu {
@@ -197,7 +198,8 @@ impl Player {
         let prompt = self.narrative.gameplay_prompt(&self.registry);
         // The window may be a different size than the logical resolution; the
         // scene is laid out at the logical size and scaled by the surface.
-        let mut frame = driver::build_frame(&self.narrative, &gpu.bank, prompt.as_deref(), Some(HINT));
+        let mut frame =
+            driver::build_frame(&self.narrative, &gpu.bank, prompt.as_deref(), Some(HINT));
         frame.width = gpu.config.width;
         frame.height = gpu.config.height;
         letterbox(&mut frame);
@@ -258,8 +260,7 @@ fn letterbox(frame: &mut rustory_render::Frame) {
     if frame.width == WIDTH && frame.height == HEIGHT {
         return;
     }
-    let scale = (frame.width as f32 / WIDTH as f32)
-        .min(frame.height as f32 / HEIGHT as f32);
+    let scale = (frame.width as f32 / WIDTH as f32).min(frame.height as f32 / HEIGHT as f32);
     let offset_x = (frame.width as f32 - WIDTH as f32 * scale) / 2.0;
     let offset_y = (frame.height as f32 - HEIGHT as f32 * scale) / 2.0;
 
