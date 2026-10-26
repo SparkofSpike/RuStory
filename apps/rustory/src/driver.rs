@@ -7,7 +7,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use rustory_core::{GameplayRegistry, Mode, Narrative, NodeId, OutcomeKey, Story};
+use rustory_core::{GameplayInput, GameplayRegistry, Mode, Narrative, NodeId, OutcomeKey, Story};
+use rustory_gameplay_quiz::Quiz;
 use rustory_gameplay_timer::TimedChoice;
 use rustory_render::{Renderer, Rgba8Image};
 
@@ -21,6 +22,7 @@ use crate::scene::{self, Scene, TextureBank};
 pub fn default_registry() -> GameplayRegistry {
     let mut registry = GameplayRegistry::new();
     registry.register(Box::new(TimedChoice::new()));
+    registry.register(Box::new(Quiz::new()));
     registry
 }
 
@@ -74,10 +76,17 @@ pub fn click(narrative: &mut Narrative, registry: &mut GameplayRegistry) -> Resu
             narrative.choose(0).map_err(|err| err.to_string())?;
         }
         Mode::Suspended { .. } => {
-            // Bounded: a system that never reports would otherwise hang the CLI.
+            // Simulate a player who always takes the first option. An empty input
+            // list would leave a system that waits for a choice suspended forever —
+            // the quiz is exactly that — while a countdown only escapes by running
+            // out. Sending `Select { index: 0 }` keeps every system able to finish
+            // and keeps the outcome deterministic.
+            let input = [GameplayInput::Select { index: 0 }];
+
+            // Bounded: a system that ignores even that would otherwise hang the CLI.
             for _ in 0..100_000 {
                 narrative
-                    .step_gameplay(registry, 16, &[])
+                    .step_gameplay(registry, 16, &input)
                     .map_err(|err| err.to_string())?;
                 if !matches!(narrative.mode(), Mode::Suspended { .. }) {
                     return Ok(());
@@ -229,8 +238,25 @@ mod tests {
     }
 
     #[test]
-    fn the_demo_requires_the_timer_system() {
-        assert_eq!(required_systems(&demo()), vec!["timer.timed_choice"]);
+    fn the_demo_uses_two_gameplay_systems() {
+        // The demo is the one place a reader can see that a story is not limited
+        // to a single system, so it must actually exercise more than one.
+        assert_eq!(
+            required_systems(&demo()),
+            vec!["quiz.multi_round", "timer.timed_choice"],
+            "both systems should appear, sorted by id"
+        );
+    }
+
+    #[test]
+    fn every_system_the_demo_names_is_registered() {
+        let registry = default_registry();
+        for system in required_systems(&demo()) {
+            assert!(
+                registry.contains(&rustory_core::SystemId::from(system.as_str())),
+                "`{system}` is referenced by the demo but not registered"
+            );
+        }
     }
 
     #[test]

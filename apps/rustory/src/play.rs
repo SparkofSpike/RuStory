@@ -24,11 +24,12 @@ use crate::scene::{HEIGHT, TextureBank, WIDTH};
 /// slow enough that the reveal is visible.
 const CHARS_PER_SEC: u32 = 45;
 
-const HINT: &str = "Click / Space: advance   1-9: choose   Esc: quit";
+const HINT: &str = "Click / Space: advance   1-9: choose   F5: save   F9: load   Esc: quit";
 
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut story_path = None;
     let mut assets = PathBuf::from("assets");
+    let mut save_path = PathBuf::from("save.ron");
 
     let mut index = 0;
     while index < args.len() {
@@ -36,6 +37,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--assets" => {
                 index += 1;
                 assets = PathBuf::from(args.get(index).ok_or("--assets needs a path")?);
+            }
+            "--save-slot" => {
+                index += 1;
+                save_path = PathBuf::from(args.get(index).ok_or("--save-slot needs a path")?);
             }
             other if other.starts_with("--") => return Err(format!("unknown option `{other}`")),
             other => {
@@ -56,7 +61,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Continuous redraw: the typewriter needs frames even when nothing moves.
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut player = Player::new(narrative, assets);
+    let mut player = Player::new(narrative, assets, save_path);
     event_loop
         .run_app(&mut player)
         .map_err(|err| err.to_string())
@@ -73,6 +78,14 @@ struct Player {
     narrative: Narrative,
     registry: GameplayRegistry,
     assets: PathBuf,
+    /// Where F5 writes and F9 reads. A single slot keeps the mental model small;
+    /// multiple slots would need a save browser before they were worth having.
+    save_path: PathBuf,
+    /// Transient message shown in the hint line, so a save or a failed load is
+    /// visible without a console.
+    notice: Option<String>,
+    /// When the notice stops being shown.
+    notice_until: Option<Instant>,
 
     window: Option<Arc<Window>>,
     gpu: Option<Gpu>,
@@ -83,16 +96,70 @@ struct Player {
 }
 
 impl Player {
-    fn new(narrative: Narrative, assets: PathBuf) -> Self {
+    fn new(narrative: Narrative, assets: PathBuf, save_path: PathBuf) -> Self {
         Self {
             narrative,
             registry: driver::default_registry(),
             assets,
+            save_path,
+            notice: None,
+            notice_until: None,
             window: None,
             gpu: None,
             last_tick: Instant::now(),
             pending_inputs: Vec::new(),
         }
+    }
+
+    /// Write the current state to the save slot.
+    fn save_to_slot(&mut self) {
+        let result = self.narrative.save(&self.registry).and_then(|save| {
+            save.to_ron()
+                .map_err(|err| rustory_core::CoreError::GameplaySaveFailed {
+                    system: "save".into(),
+                    message: err.to_string(),
+                })
+        });
+
+        match result {
+            Ok(text) => match std::fs::write(&self.save_path, text) {
+                Ok(()) => self.set_notice(format!("Saved to {}", self.save_path.display())),
+                Err(err) => self.set_notice(format!("Save failed: {err}")),
+            },
+            Err(err) => self.set_notice(format!("Save failed: {err}")),
+        }
+    }
+
+    /// Show a message on the hint line for a few seconds.
+    fn set_notice(&mut self, message: String) {
+        self.notice = Some(message);
+        self.notice_until = Some(Instant::now() + std::time::Duration::from_secs(3));
+    }
+
+    /// Replace the running session with whatever is in the save slot.
+    ///
+    /// A failed load leaves the current session untouched: refusing to load is
+    /// recoverable, while half-restoring would destroy the run in progress.
+    fn load_from_slot(&mut self) {
+        let outcome = (|| -> Result<(), String> {
+            let text = std::fs::read_to_string(&self.save_path)
+                .map_err(|err| format!("cannot read {}: {err}", self.save_path.display()))?;
+            let save = rustory_core::SaveState::from_ron(&text).map_err(|err| err.to_string())?;
+            let story = self.narrative.story().clone();
+            let restored = Narrative::from_save(story, &save, &mut self.registry)
+                .map_err(|err| err.to_string())?;
+            self.narrative = restored;
+            // A line revealed before the load must not continue revealing from a
+            // stale accumulator.
+            self.last_tick = Instant::now();
+            self.pending_inputs.clear();
+            Ok(())
+        })();
+
+        self.set_notice(match outcome {
+            Ok(()) => format!("Loaded {}", self.save_path.display()),
+            Err(err) => format!("Load failed: {err}"),
+        });
     }
 
     fn init_gpu(&mut self, window: Arc<Window>) -> Result<(), String> {
@@ -173,6 +240,11 @@ impl Player {
         let dt_ms = (now - self.last_tick).as_millis().min(100) as u32;
         self.last_tick = now;
 
+        if self.notice_until.is_some_and(|deadline| now >= deadline) {
+            self.notice = None;
+            self.notice_until = None;
+        }
+
         // A gameplay system drives its own clock, so the narrative is ticked
         // separately: while suspended there is no line to reveal anyway.
         self.narrative.tick(dt_ms, CHARS_PER_SEC);
@@ -198,8 +270,14 @@ impl Player {
         let prompt = self.narrative.gameplay_prompt(&self.registry);
         // The window may be a different size than the logical resolution; the
         // scene is laid out at the logical size and scaled by the surface.
-        let mut frame =
-            driver::build_frame(&self.narrative, &gpu.bank, prompt.as_deref(), Some(HINT));
+        let mut frame = driver::build_frame(
+            &self.narrative,
+            &gpu.bank,
+            prompt.as_deref(),
+            // A save notice takes the hint line for a few seconds, then the usual
+            // key reminder comes back. Overlaying both would make neither readable.
+            Some(self.notice.as_deref().unwrap_or(HINT)),
+        );
         frame.width = gpu.config.width;
         frame.height = gpu.config.height;
         letterbox(&mut frame);
@@ -325,6 +403,8 @@ impl ApplicationHandler for Player {
                 }
                 match event.physical_key {
                     PhysicalKey::Code(KeyCode::Escape) => event_loop.exit(),
+                    PhysicalKey::Code(KeyCode::F5) => self.save_to_slot(),
+                    PhysicalKey::Code(KeyCode::F9) => self.load_from_slot(),
                     PhysicalKey::Code(KeyCode::Space | KeyCode::Enter) => self.on_confirm(),
                     PhysicalKey::Code(code) => {
                         if let Some(index) = digit_index(code) {

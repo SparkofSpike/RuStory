@@ -40,11 +40,14 @@ USAGE:
     rustory gen-assets [dir]            Write placeholder art (default: assets)
     rustory shot <story.ron> [options]  Render one frame to a PNG
     rustory play <story.ron> [options]  Play it in a window
+    rustory save <story.ron> [options]  Advance, then write a save file
+    rustory resume <story.ron> <save>   Load a save and report where it resumes
 
-OPTIONS for shot / play:
+OPTIONS for shot / play / save / resume:
     --assets <dir>     Where sprite and background PNGs live (default: assets)
-    --out <file.png>   Output path for shot (default: shot.png)
-    --advance <n>      Clicks to simulate before capturing (default: 0)
+    --out <file>       Output path for shot (.png) or save (.ron)
+    --advance <n>      Clicks to simulate before acting (default: 0)
+    --finish           resume: keep playing to an ending instead of reporting
 ";
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -75,6 +78,8 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         "shot" => shot(&args[1..]),
         "play" => play::run(&args[1..]),
+        "save" => save_cmd(&args[1..]),
+        "resume" => resume_cmd(&args[1..]),
         "help" | "--help" | "-h" => {
             print!("{USAGE}");
             Ok(())
@@ -252,6 +257,126 @@ fn shot(args: &[String]) -> Result<(), String> {
         frame.primitive_count(),
         driver::describe_mode(&narrative)
     );
+    Ok(())
+}
+
+/// Advance a story, then write a save.
+///
+/// `--advance` counts interactions the same way `shot` does, which makes it
+/// possible to reach an interesting state (mid-line, mid-choice, mid-gameplay)
+/// without a window.
+fn save_cmd(args: &[String]) -> Result<(), String> {
+    let mut story_path = None;
+    let mut out = PathBuf::from("save.ron");
+    let mut advance = 0usize;
+
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--out" => {
+                index += 1;
+                out = PathBuf::from(args.get(index).ok_or("--out needs a path")?);
+            }
+            "--advance" => {
+                index += 1;
+                let value = args.get(index).ok_or("--advance needs a number")?;
+                advance = value
+                    .parse()
+                    .map_err(|_| format!("--advance expects a number, got `{value}`"))?;
+            }
+            other if other.starts_with("--") => return Err(format!("unknown option `{other}`")),
+            other => {
+                if story_path.is_some() {
+                    return Err(format!("unexpected argument `{other}`"));
+                }
+                story_path = Some(PathBuf::from(other));
+            }
+        }
+        index += 1;
+    }
+
+    let story_path = story_path.ok_or("save needs a story path")?;
+    let story = load(&story_path)?;
+    let mut narrative = Narrative::new(story).map_err(|err| err.to_string())?;
+    let mut registry = driver::default_registry();
+
+    for _ in 0..advance {
+        if matches!(narrative.mode(), rustory_core::Mode::Finished { .. }) {
+            break;
+        }
+        driver::click(&mut narrative, &mut registry)?;
+    }
+
+    // A script that reaches a gameplay handover leaves the mode suspended but the
+    // system un-begun: `begin` runs on the first step. Saving in that window would
+    // record "no state" for a system that is about to have some. A zero-length step
+    // performs the handover without consuming the clock.
+    if matches!(narrative.mode(), rustory_core::Mode::Suspended { .. }) {
+        narrative
+            .step_gameplay(&mut registry, 0, &[])
+            .map_err(|err| err.to_string())?;
+    }
+
+    let save = narrative.save(&registry).map_err(|err| err.to_string())?;
+    let text = save.to_ron().map_err(|err| err.to_string())?;
+    std::fs::write(&out, text).map_err(|err| format!("cannot write {}: {err}", out.display()))?;
+
+    println!(
+        "wrote {} at node `{}` ({})",
+        out.display(),
+        narrative.cursor(),
+        driver::describe_mode(&narrative)
+    );
+    Ok(())
+}
+
+/// Load a save and report where it resumes; with `--finish`, keep playing.
+fn resume_cmd(args: &[String]) -> Result<(), String> {
+    let mut positional: Vec<PathBuf> = Vec::new();
+    let mut finish = false;
+
+    for arg in args {
+        match arg.as_str() {
+            "--finish" => finish = true,
+            other if other.starts_with("--") => return Err(format!("unknown option `{other}`")),
+            other => positional.push(PathBuf::from(other)),
+        }
+    }
+
+    let [story_path, save_path] = positional.as_slice() else {
+        return Err("resume needs a story path and a save path".into());
+    };
+
+    let story = load(story_path)?;
+    let text = std::fs::read_to_string(save_path)
+        .map_err(|err| format!("cannot read {}: {err}", save_path.display()))?;
+    let save = rustory_core::SaveState::from_ron(&text).map_err(|err| err.to_string())?;
+
+    let mut registry = driver::default_registry();
+    let mut narrative =
+        Narrative::from_save(story, &save, &mut registry).map_err(|err| err.to_string())?;
+
+    println!(
+        "resumed at node `{}` ({})",
+        narrative.cursor(),
+        driver::describe_mode(&narrative)
+    );
+    if let Some(line) = narrative.line() {
+        println!("line: {}", scene::line_summary(&line));
+    }
+
+    if finish {
+        // Bounded so a story that never ends cannot hang the CLI; the same guard
+        // the transcript driver uses.
+        for _ in 0..10_000 {
+            if matches!(narrative.mode(), rustory_core::Mode::Finished { .. }) {
+                break;
+            }
+            driver::click(&mut narrative, &mut registry)?;
+        }
+        println!("then: {}", driver::describe_mode(&narrative));
+    }
+
     Ok(())
 }
 

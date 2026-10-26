@@ -10,6 +10,9 @@
 // The text is English to match the rest of the repository. CJK shaping and line
 // breaking are covered by a dedicated renderer test that feeds a Chinese
 // paragraph through the same code path.
+//
+// Two gameplay systems appear here on purpose: the timed choice and the quiz. A
+// script is not limited to one, and neither system knows the other exists.
 
 Story(
     meta: (
@@ -76,8 +79,53 @@ Story(
             beats: [
                 Say(speaker: Some("yuki"), text: "...Yeah. I've been waiting a long time to hear that."),
                 Say(speaker: None, text: "Chalk dust drifted slowly through the light."),
+                Say(speaker: Some("yuki"), text: "But you don't get to stop there. Two questions."),
             ],
-            exit: End(ending: Some("Said it out loud")),
+            exit: Gameplay(spec: (
+                system: "quiz.multi_round",
+                config: Some((
+                    prompt: Some("She has not finished with you."),
+                    rounds: [
+                        (
+                            question: "When did you decide?",
+                            options: ["Just now", "A long time ago"],
+                            correct: 1,
+                        ),
+                        (
+                            question: "Why didn't you say it sooner?",
+                            options: ["I was afraid", "It slipped my mind"],
+                            correct: 0,
+                        ),
+                    ],
+                )),
+                outcomes: {
+                    "perfect": "understood",
+                    "passed": "half_honest",
+                    "failed": "misread",
+                },
+            )),
+        ),
+
+        "understood": (
+            beats: [
+                Say(speaker: Some("yuki"), text: "...I see. Same here, then."),
+                Say(speaker: None, text: "The classroom held its breath."),
+            ],
+            exit: End(ending: Some("Understood")),
+        ),
+
+        "half_honest": (
+            beats: [
+                Say(speaker: Some("yuki"), text: "Half honest. I'll take it, for now."),
+            ],
+            exit: End(ending: Some("Half honest")),
+        ),
+
+        "misread": (
+            beats: [
+                Say(speaker: Some("yuki"), text: "...Never mind. Forget I asked."),
+            ],
+            exit: End(ending: Some("Misread")),
         ),
 
         "awkward": (
