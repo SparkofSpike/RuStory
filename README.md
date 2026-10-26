@@ -42,7 +42,7 @@ and the contract gets fixed — not the core.
 - Branching choices
 - Gameplay handover: a timed choice takes control, then returns it
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 69 tests, including offscreen GPU renders that assert where things land
+- 71 tests, including offscreen GPU renders that assert where things land
 
 Not yet: audio, save/load, WASM plugins, an authoring tool. Those have ADRs
 describing the plan, not code pretending to be one.
@@ -111,7 +111,7 @@ Requires Rust 1.85+ (edition 2024) and, on Windows, the MSVC toolchain.
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 69 tests; render tests skip without a GPU
+cargo test --workspace      # 71 tests; render tests skip without a GPU
 cargo run -p rustory -- probe
 ```
 

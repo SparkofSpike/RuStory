@@ -572,3 +572,52 @@ fn stepping_gameplay_while_not_suspended_does_nothing() {
         .expect("no-op");
     assert!(matches!(narrative.mode(), Mode::Revealing));
 }
+
+#[test]
+fn a_long_run_of_immediate_beats_is_not_mistaken_for_a_cycle() {
+    // The traversal bound exists to catch goto cycles, not to cap scene length.
+    // A scene that sets a lot of stage state before its first line is legitimate
+    // and must still play.
+    let mut beats: Vec<Beat> = (0..900)
+        .map(|index| Beat::ShowActor {
+            actor: ActorId::from(format!("actor{index}")),
+            pose: "idle".into(),
+            slot: Slot::Center,
+        })
+        .collect();
+    beats.push(say("finally a line"));
+
+    let mut narrative = Narrative::new(make_story(
+        vec![("only", Node { beats, exit: end() })],
+        "only",
+    ))
+    .expect("900 immediate beats is a long scene, not a loop");
+
+    assert_eq!(narrative.stage().actors().len(), 900);
+    narrative.tick(1000, INSTANT);
+    assert_eq!(narrative.line().map(|l| l.visible), Some("finally a line"));
+}
+
+#[test]
+fn a_single_node_cannot_exceed_the_traversal_bound() {
+    // Past the bound the machine reports the problem instead of looping. Two
+    // thousand stage commands in one node is a broken script, not a scene.
+    let beats: Vec<Beat> = (0..2000)
+        .map(|index| Beat::ShowActor {
+            actor: ActorId::from(format!("actor{index}")),
+            pose: "idle".into(),
+            slot: Slot::Center,
+        })
+        .collect();
+
+    let err = Narrative::new(make_story(
+        vec![("only", Node { beats, exit: end() })],
+        "only",
+    ))
+    .expect_err("must report, not hang");
+
+    assert!(
+        matches!(err, CoreError::EndlessFlow { .. }),
+        "unexpected error: {err}"
+    );
+}
