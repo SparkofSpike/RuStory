@@ -42,7 +42,7 @@ mod op;
 
 pub use crate::apply::Reference;
 pub use document::Document;
-pub use editor::{BatchError, Editor, HISTORY_LIMIT, HistoryEntry};
+pub use editor::{BatchError, Editor, HISTORY_LIMIT, HistoryEntry, problems_of};
 pub use error::EditError;
 pub use op::EditOp;
 

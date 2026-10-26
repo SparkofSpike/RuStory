@@ -288,101 +288,101 @@ impl Editor {
         Ok(())
     }
 
-    /// Validate without changing anything, returning every problem found.
-    ///
-    /// `Story::validate` stops at the first fault because during editing one fault at
-    /// a time is what you want to fix. For a pre-save check, a complete list is more
-    /// useful, so this walks the graph itself.
+    /// Every problem in the current document. See [`problems_of`].
     #[must_use]
     pub fn problems(&self) -> Vec<String> {
-        let story = self.story();
-        let mut found = Vec::new();
+        problems_of(self.story())
+    }
+}
 
-        if story.nodes.is_empty() {
-            found.push("the story has no nodes".to_owned());
-            return found;
-        }
+/// Validate `story` without changing anything, returning every problem found.
+///
+/// `Story::validate` stops at the first fault, because during editing one fault at a time
+/// is what you want to fix. For a pre-save check a complete list is more useful, so this
+/// walks the graph itself. Public because the CLI reports the same faults without opening
+/// a document, and two implementations of "is this story sound" would drift apart.
+#[must_use]
+pub fn problems_of(story: &Story) -> Vec<String> {
+    let mut found = Vec::new();
 
-        if !story.nodes.contains_key(&story.start) {
-            found.push(format!("the start node `{}` does not exist", story.start));
-        }
+    if story.nodes.is_empty() {
+        found.push("the story has no nodes".to_owned());
+        return found;
+    }
 
-        for (id, node) in &story.nodes {
-            match &node.exit {
-                rustory_core::Exit::End { .. } => {}
-                rustory_core::Exit::Goto { to } => {
-                    push_if_dangling(&mut found, story, id, to, "the goto");
+    if !story.nodes.contains_key(&story.start) {
+        found.push(format!("the start node `{}` does not exist", story.start));
+    }
+
+    for (id, node) in &story.nodes {
+        match &node.exit {
+            rustory_core::Exit::End { .. } => {}
+            rustory_core::Exit::Goto { to } => {
+                push_if_dangling(&mut found, story, id, to, "the goto");
+            }
+            rustory_core::Exit::Choose { choices, .. } => {
+                if choices.is_empty() {
+                    found.push(format!(
+                        "node `{id}`: a choice exit needs at least one option"
+                    ));
                 }
-                rustory_core::Exit::Choose { choices, .. } => {
-                    if choices.is_empty() {
-                        found.push(format!(
-                            "node `{id}`: a choice exit needs at least one option"
-                        ));
-                    }
-                    for (index, choice) in choices.iter().enumerate() {
-                        push_if_dangling(
-                            &mut found,
-                            story,
-                            id,
-                            &choice.to,
-                            &format!("choice {}", index + 1),
-                        );
-                    }
+                for (index, choice) in choices.iter().enumerate() {
+                    push_if_dangling(
+                        &mut found,
+                        story,
+                        id,
+                        &choice.to,
+                        &format!("choice {}", index + 1),
+                    );
                 }
-                rustory_core::Exit::Gameplay { spec } => {
-                    if spec.outcomes.is_empty() {
-                        found.push(format!(
+            }
+            rustory_core::Exit::Gameplay { spec } => {
+                if spec.outcomes.is_empty() {
+                    found.push(format!(
                             "node `{id}`: gameplay system `{}` maps no outcomes, so the story cannot continue",
                             spec.system
                         ));
-                    }
-                    for (outcome, to) in &spec.outcomes {
-                        push_if_dangling(
-                            &mut found,
-                            story,
-                            id,
-                            to,
-                            &format!("outcome `{outcome}`"),
-                        );
-                    }
+                }
+                for (outcome, to) in &spec.outcomes {
+                    push_if_dangling(&mut found, story, id, to, &format!("outcome `{outcome}`"));
                 }
             }
         }
-
-        // Reachability is a content problem, not a structural one: the story loads and
-        // plays, but the author has written a scene nothing can arrive at. Reported
-        // rather than refused, because a draft branch is a normal state while writing.
-        let mut reached = std::collections::BTreeSet::new();
-        let mut queue = std::collections::VecDeque::new();
-        if story.nodes.contains_key(&story.start) {
-            queue.push_back(story.start.clone());
-        }
-        while let Some(id) = queue.pop_front() {
-            if !reached.insert(id.clone()) {
-                continue;
-            }
-            let Some(node) = story.nodes.get(&id) else {
-                continue;
-            };
-            match &node.exit {
-                rustory_core::Exit::End { .. } => {}
-                rustory_core::Exit::Goto { to } => queue.push_back(to.clone()),
-                rustory_core::Exit::Choose { choices, .. } => {
-                    queue.extend(choices.iter().map(|choice| choice.to.clone()));
-                }
-                rustory_core::Exit::Gameplay { spec } => {
-                    queue.extend(spec.outcomes.values().cloned());
-                }
-            }
-        }
-        for id in story.nodes.keys() {
-            if !reached.contains(id) {
-                found.push(format!("node `{id}` cannot be reached from the start"));
-            }
-        }
-
-        found
     }
+
+    // Reachability is a content problem, not a structural one: the story loads and
+    // plays, but the author has written a scene nothing can arrive at. Reported
+    // rather than refused, because a draft branch is a normal state while writing.
+    let mut reached = std::collections::BTreeSet::new();
+    let mut queue = std::collections::VecDeque::new();
+    if story.nodes.contains_key(&story.start) {
+        queue.push_back(story.start.clone());
+    }
+    while let Some(id) = queue.pop_front() {
+        if !reached.insert(id.clone()) {
+            continue;
+        }
+        let Some(node) = story.nodes.get(&id) else {
+            continue;
+        };
+        match &node.exit {
+            rustory_core::Exit::End { .. } => {}
+            rustory_core::Exit::Goto { to } => queue.push_back(to.clone()),
+            rustory_core::Exit::Choose { choices, .. } => {
+                queue.extend(choices.iter().map(|choice| choice.to.clone()));
+            }
+            rustory_core::Exit::Gameplay { spec } => {
+                queue.extend(spec.outcomes.values().cloned());
+            }
+        }
+    }
+    for id in story.nodes.keys() {
+        if !reached.contains(id) {
+            found.push(format!("node `{id}` cannot be reached from the start"));
+        }
+    }
+
+    found
 }
 
 /// One failed operation inside a batch, with its position.

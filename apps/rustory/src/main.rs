@@ -180,6 +180,10 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
         }
     }
 
+    // The same walk the editor shows: one definition of "is this story sound", used by
+    // the panel, `rustory edit` and this report.
+    let problems = rustory_edit::problems_of(&story);
+
     let mut mappings: Vec<(String, Vec<String>)> = Vec::new();
     for (system, outcomes) in driver::mapped_outcomes(&story) {
         mappings.push((
@@ -201,6 +205,7 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
                 "title": story.meta.title,
                 "author": story.meta.author,
                 "missing_systems": missing,
+                "problems": problems,
                 "outcomes": mappings
                     .iter()
                     .map(|(system, handles)| serde_json::json!({
@@ -223,6 +228,9 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
     );
     if let Some(title) = &story.meta.title {
         println!("title: {title}");
+    }
+    for problem in &problems {
+        println!("problem: {problem}");
     }
     for system in &missing {
         println!("warning: gameplay system `{system}` is not registered");
