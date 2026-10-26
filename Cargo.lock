@@ -1734,6 +1734,7 @@ dependencies = [
  "pollster",
  "ron",
  "rustory-core",
+ "rustory-gameplay-quiz",
  "rustory-gameplay-timer",
  "rustory-render",
  "rustory-script",
@@ -1750,6 +1751,16 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "rustory-gameplay-quiz"
+version = "0.1.0"
+dependencies = [
+ "ron",
+ "rustory-core",
+ "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

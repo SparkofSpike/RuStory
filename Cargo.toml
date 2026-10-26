@@ -5,6 +5,7 @@ members = [
     "crates/rustory-script",
     "crates/rustory-render",
     "crates/rustory-gameplay-timer",
+    "crates/rustory-gameplay-quiz",
     "apps/rustory",
 ]
 
@@ -21,6 +22,7 @@ rustory-core = { path = "crates/rustory-core" }
 rustory-script = { path = "crates/rustory-script" }
 rustory-render = { path = "crates/rustory-render" }
 rustory-gameplay-timer = { path = "crates/rustory-gameplay-timer" }
+rustory-gameplay-quiz = { path = "crates/rustory-gameplay-quiz" }
 
 serde = { version = "1", features = ["derive"] }
 ron = "0.11"

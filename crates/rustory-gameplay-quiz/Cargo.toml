@@ -1,0 +1,13 @@
+[package]
+name = "rustory-gameplay-quiz"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "RuStory gameplay system: a multi-round quiz, demonstrating state that cannot be rebuilt from Stats."
+
+[dependencies]
+rustory-core = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+thiserror = { workspace = true }
