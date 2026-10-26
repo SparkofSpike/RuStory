@@ -26,7 +26,7 @@ use wgpu::{
     VertexAttribute, VertexBufferLayout, VertexFormat, VertexState,
 };
 
-use crate::frame::{Frame, Rgba, TextureId};
+use crate::frame::{FontChoice, Frame, Rgba, TextureId};
 use crate::image::Rgba8Image;
 
 /// Format used for every render target this renderer draws into.
@@ -110,6 +110,8 @@ pub enum RenderError {
     NoAdapter(String),
     /// Text shaping or atlas preparation failed.
     Text(String),
+    /// A font file could not be read or was not a font the shaper understands.
+    Font(String),
 }
 
 impl std::fmt::Display for RenderError {
@@ -117,6 +119,7 @@ impl std::fmt::Display for RenderError {
         match self {
             Self::NoAdapter(message) => write!(f, "no usable GPU: {message}"),
             Self::Text(message) => write!(f, "text preparation failed: {message}"),
+            Self::Font(message) => write!(f, "font loading failed: {message}"),
         }
     }
 }
@@ -399,6 +402,129 @@ impl Renderer {
         );
     }
 
+    // --- fonts ----------------------------------------------------------
+    //
+    // The engine ships no fonts and makes no assumptions about which ones a
+    // project uses. A game that must render on machines it has never seen has to
+    // bring its own; a game that is happy with whatever the platform offers can
+    // ignore all of this. Either way the renderer only needs to be told.
+    //
+    // A loaded font participates in the same fallback chain as installed ones, so
+    // a project font that covers Latin does not stop cosmic-text reaching an
+    // installed face for a CJK line.
+
+    /// Load one font file.
+    ///
+    /// Accepts anything the shaper does (TTF, OTF, TTC). Returns the family names
+    /// the file declares, which is what [`FontChoice::Named`] matches against —
+    /// useful for logging and for the common case where a creator does not know
+    /// the internal name of the file they were handed.
+    pub fn load_font(
+        &mut self,
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<Vec<String>, RenderError> {
+        let path = path.as_ref();
+        let bytes = std::fs::read(path)
+            .map_err(|err| RenderError::Font(format!("cannot read {}: {err}", path.display())))?;
+
+        let ids = self
+            .font_system
+            .db_mut()
+            .load_font_source(glyphon::fontdb::Source::Binary(std::sync::Arc::new(bytes)));
+        if ids.is_empty() {
+            return Err(RenderError::Font(format!(
+                "{} contains no usable face",
+                path.display()
+            )));
+        }
+
+        // Read the names back from the database that just accepted the file, so a
+        // caller learns what to pass to `FontChoice::Named` instead of guessing
+        // from the filename.
+        let mut families: Vec<String> = ids
+            .iter()
+            .filter_map(|id| self.font_system.db().face(*id))
+            .flat_map(|face| face.families.iter().map(|(name, _)| name.clone()))
+            .collect();
+        families.sort();
+        families.dedup();
+        Ok(families)
+    }
+
+    /// Load every font file in a directory, skipping anything unreadable.
+    ///
+    /// Returns the families that loaded, so a caller can report what is available.
+    /// A failure on one file is reported but does not stop the rest: a directory of
+    /// mixed assets should yield the fonts and mention the junk, not fail whole.
+    pub fn load_fonts_dir(
+        &mut self,
+        dir: impl AsRef<std::path::Path>,
+    ) -> Result<Vec<String>, RenderError> {
+        let dir = dir.as_ref();
+        let entries = std::fs::read_dir(dir)
+            .map_err(|err| RenderError::Font(format!("cannot read {}: {err}", dir.display())))?;
+
+        let mut loaded = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let extension = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(str::to_ascii_lowercase);
+            if !matches!(extension.as_deref(), Some("ttf" | "otf" | "ttc")) {
+                continue;
+            }
+            match self.load_font(&path) {
+                Ok(mut families) => loaded.append(&mut families),
+                Err(err) => eprintln!("rustory: {err}"),
+            }
+        }
+        Ok(loaded)
+    }
+
+    /// Make a loaded or installed family the one `FontChoice::SansSerif` resolves to.
+    ///
+    /// This is how a project replaces the platform default with its own font
+    /// everywhere at once, without naming the family on every text run. The family
+    /// must already be available — loaded through [`Renderer::load_font`] or
+    /// installed on the system — otherwise the generic name is left untouched.
+    pub fn set_sans_serif_family(&mut self, family: impl Into<String>) -> bool {
+        let family = family.into();
+        if !self.has_family(&family) {
+            return false;
+        }
+        self.font_system.db_mut().set_sans_serif_family(family);
+        true
+    }
+
+    /// Whether a family is available, by exact name, case-insensitively.
+    #[must_use]
+    pub fn has_family(&self, family: &str) -> bool {
+        let wanted = family.to_lowercase();
+        self.font_system.db().faces().any(|face| {
+            face.families
+                .iter()
+                .any(|(name, _)| name.to_lowercase() == wanted)
+        })
+    }
+
+    /// Every family name currently available, sorted and deduplicated.
+    ///
+    /// Exists for diagnostics: "the font did not apply" is otherwise a guess about
+    /// whether the name was wrong or the file never loaded.
+    #[must_use]
+    pub fn families(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .font_system
+            .db()
+            .faces()
+            .flat_map(|face| face.families.iter().map(|(name, _)| name.clone()))
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     /// Draw a frame into `target`.
     ///
     /// `target` must have [`TARGET_FORMAT`] and match [`Renderer::size`].
@@ -425,7 +551,7 @@ impl Renderer {
             buffer.set_size(Some(item.max_width), Some(frame.height as f32));
             buffer.set_text(
                 &item.text,
-                &Attrs::new().family(Family::SansSerif),
+                &Attrs::new().family(family_for(&item.font)),
                 Shaping::Advanced,
                 None,
             );
@@ -548,6 +674,20 @@ impl Renderer {
         self.render_to(frame, &view)?;
 
         read_back(&self.device, &self.queue, &texture, self.size)
+    }
+}
+
+/// Map a [`FontChoice`] onto the shaper's family selector.
+///
+/// `Family::Name` borrows, so the lifetime ties the selector to the `TextItem`
+/// that named the font. That is fine: the attrs are only alive for the
+/// `set_text` call that consumes them.
+fn family_for(choice: &FontChoice) -> Family<'_> {
+    match choice {
+        FontChoice::SansSerif => Family::SansSerif,
+        FontChoice::Serif => Family::Serif,
+        FontChoice::Monospace => Family::Monospace,
+        FontChoice::Named(name) => Family::Name(name),
     }
 }
 

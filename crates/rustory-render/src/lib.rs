@@ -18,7 +18,7 @@ mod frame;
 mod image;
 mod renderer;
 
-pub use frame::{Frame, Quad, Rect, Rgba, TextItem, TextureId, Uv};
+pub use frame::{FontChoice, Frame, Quad, Rect, Rgba, TextItem, TextureId, Uv};
 pub use image::{ImageError, Rgba8Image};
 pub use renderer::{RenderError, Renderer, TARGET_FORMAT};
 

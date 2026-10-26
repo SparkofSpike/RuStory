@@ -145,6 +145,35 @@ impl Quad {
     }
 }
 
+/// Which typeface a text run asks for.
+///
+/// A visual novel does not pick one font: dialogue, a name plate and a system
+/// message want different faces. This is a layout concern, not a game concept, so
+/// it lives in the renderer rather than in the story model.
+///
+/// `Named` is how a creator selects a font they loaded themselves. The engine
+/// ships no fonts and has no opinion about which one a project uses; it only
+/// needs to be told.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum FontChoice {
+    /// Whatever the platform offers as its default sans-serif.
+    #[default]
+    SansSerif,
+    Serif,
+    Monospace,
+    /// A family name, resolved against loaded fonts first and installed fonts
+    /// second. Skips to the generic sans-serif if nothing matches, so a typo
+    /// costs a wrong typeface rather than an invisible line of dialogue.
+    Named(String),
+}
+
+impl FontChoice {
+    #[must_use]
+    pub fn named(name: impl Into<String>) -> Self {
+        Self::Named(name.into())
+    }
+}
+
 /// A run of text to shape and draw.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextItem {
@@ -156,6 +185,8 @@ pub struct TextItem {
     pub color: Rgba,
     /// Wrap width. Text beyond this wraps rather than overflowing.
     pub max_width: f32,
+    /// Which face to shape with.
+    pub font: FontChoice,
 }
 
 impl TextItem {
@@ -169,7 +200,14 @@ impl TextItem {
             line_height: font_size * 1.3,
             color: Rgba::rgb(255, 255, 255),
             max_width: f32::INFINITY,
+            font: FontChoice::default(),
         }
+    }
+
+    #[must_use]
+    pub fn with_font(mut self, font: FontChoice) -> Self {
+        self.font = font;
+        self
     }
 
     #[must_use]
