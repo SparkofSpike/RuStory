@@ -9,7 +9,16 @@
 # Default output of `rustory shot`.
 /shot.png
 
-# Local handoff brief. Kept out of the repository on purpose: it carries planning
-# notes and machine-specific context, and it would go stale against the ADRs.
-# Design decisions belong in docs/adr/, where they are versioned and reviewed.
+# Local working notes, deliberately not tracked.
+#
+# AGENTS.md is the operating standard for this checkout: it may name local paths
+# and machine specifics, and it is written for whoever (or whatever) works here
+# rather than for a public audience.
+#
+# HANDOFF.md is background context for a session picking the work up.
+#
+# Neither is authoritative on architecture: docs/adr/ is the single record of
+# design decisions, versioned and reviewed. Anything that must outlive one machine
+# belongs there, not in these files.
+/AGENTS.md
 /HANDOFF.md

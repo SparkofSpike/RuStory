@@ -6,6 +6,10 @@
 //
 // Note the RON shape: struct variants take named fields, tuple variants take a
 // value, and `Option` fields must say `Some(...)`.
+//
+// The text is English to match the rest of the repository. CJK shaping and line
+// breaking are covered by a dedicated renderer test that feeds a Chinese
+// paragraph through the same code path.
 
 Story(
     meta: (
@@ -17,18 +21,18 @@ Story(
         "prologue": (
             beats: [
                 SetBackground(image: Some("bg_classroom.png")),
-                Say(speaker: None, text: "放学后的教室，只剩下两个人。"),
+                Say(speaker: None, text: "After school, the classroom holds only two people."),
                 ShowActor(actor: "yuki", pose: "yuki_smile", slot: Left),
-                Say(speaker: Some("yuki"), text: "你还没走？"),
+                Say(speaker: Some("yuki"), text: "You haven't left yet?"),
                 ShowActor(actor: "kai", pose: "kai_neutral", slot: Right),
-                Say(speaker: Some("kai"), text: "在等你。"),
-                Say(speaker: Some("yuki"), text: "……等我做什么？"),
+                Say(speaker: Some("kai"), text: "I was waiting for you."),
+                Say(speaker: Some("yuki"), text: "...Waiting for what?"),
             ],
             exit: Choose(
-                prompt: Some("要怎么回答？"),
+                prompt: Some("How do you answer?"),
                 choices: [
-                    (label: "老实说", to: "honest"),
-                    (label: "岔开话题", to: "deflect"),
+                    (label: "Tell her the truth", to: "honest"),
+                    (label: "Change the subject", to: "deflect"),
                 ],
             ),
         ),
@@ -36,16 +40,16 @@ Story(
         "honest": (
             beats: [
                 HideActor(actor: "kai"),
-                Say(speaker: Some("yuki"), text: "那你说吧。我听着。"),
+                Say(speaker: Some("yuki"), text: "Then say it. I'm listening."),
             ],
             exit: Gameplay(spec: (
                 system: "timer.timed_choice",
                 config: Some((
-                    prompt: Some("她盯着你，等一个答案。"),
+                    prompt: Some("She is watching you, waiting for an answer."),
                     duration_ms: 5000,
                     options: [
-                        "「我喜欢你。」",
-                        "「……没什么。」",
+                        "\"I like you.\"",
+                        "\"...Never mind.\"",
                     ],
                     correct: 0,
                 )),
@@ -59,29 +63,29 @@ Story(
 
         "deflect": (
             beats: [
-                Say(speaker: Some("yuki"), text: "转移话题。你啊……"),
+                Say(speaker: Some("yuki"), text: "Changing the subject. That's you alright."),
                 SetBackground(image: None),
                 HideActor(actor: "yuki"),
                 HideActor(actor: "kai"),
-                Say(speaker: None, text: "窗外的天色暗了下来。"),
+                Say(speaker: None, text: "Outside the window, the light went dim."),
             ],
-            exit: End(ending: Some("躲开了")),
+            exit: End(ending: Some("Looked away")),
         ),
 
         "confession": (
             beats: [
-                Say(speaker: Some("yuki"), text: "……嗯。我等你这句话很久了。"),
-                Say(speaker: None, text: "粉笔灰在光里慢慢落下。"),
+                Say(speaker: Some("yuki"), text: "...Yeah. I've been waiting a long time to hear that."),
+                Say(speaker: None, text: "Chalk dust drifted slowly through the light."),
             ],
-            exit: End(ending: Some("说出口")),
+            exit: End(ending: Some("Said it out loud")),
         ),
 
         "awkward": (
             beats: [
-                Say(speaker: Some("yuki"), text: "……这样啊。"),
-                Say(speaker: None, text: "她没有再问。放学铃响了。"),
+                Say(speaker: Some("yuki"), text: "...I see."),
+                Say(speaker: None, text: "She didn't ask again. The bell rang."),
             ],
-            exit: End(ending: Some("没说清")),
+            exit: End(ending: Some("Left unsaid")),
         ),
     },
 )

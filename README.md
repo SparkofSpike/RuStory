@@ -60,9 +60,9 @@ The demo runs without a window too:
 
 ```console
 $ cargo run -p rustory -- transcript stories/demo.ron
-放学后的教室，只剩下两个人。
-Yuki: 你还没走？
-Kai: 在等你。
+After school, the classroom holds only two people.
+Yuki: You haven't left yet?
+Kai: I was waiting for you.
 ...
 ```
 
@@ -145,8 +145,9 @@ Story(
 ```
 
 See [`stories/demo.ron`](stories/demo.ron) for a complete example, including a
-gameplay handover. The demo text is Chinese, which also exercises CJK shaping and
-line breaking.
+gameplay handover. Story text can be any language: CJK shaping and line breaking
+are exercised by a dedicated renderer test that pushes a Chinese paragraph through
+the same code path.
 
 ## Adding gameplay
 
