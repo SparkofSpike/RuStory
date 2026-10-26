@@ -56,7 +56,7 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 206 tests, including offscreen GPU renders, colour round-trips, and 45 covering the editor operations
+- 211 tests, including offscreen GPU renders, colour round-trips, and 46 covering the editor operations
 
 Not yet: audio, rollback history, WASM plugins, an authoring tool. Those have ADRs
 describing the plan, not code pretending to be one.
@@ -203,7 +203,7 @@ Requires Rust 1.85+ (edition 2024) and, on Windows, the MSVC toolchain.
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 206 tests; render tests skip without a GPU
+cargo test --workspace      # 211 tests; render tests skip without a GPU
 cargo run -p rustory -- probe
 ```
 

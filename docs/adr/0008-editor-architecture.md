@@ -117,7 +117,7 @@ intermediate, and this ADR should be superseded.
 
 ## Verification
 
-- `cargo test --workspace` â€” 206 tests. `rustory-edit` contributes 45 of them, covering
+- `cargo test --workspace` â€” 211 tests. `rustory-edit` contributes 46 of them, covering
   every operation, every refusal, batch rollback, undo/redo, and a lossless save/reload
   round-trip including non-ASCII text.
 - `rustory ops --json` prints the operation vocabulary with `changes_structure` flags.
@@ -192,6 +192,6 @@ not an `EditOp`. The rule "panels describe intent, the app applies it" is about 
 That is what makes navigation cheap enough to put everywhere. The **Go** button beside a
 `goto` target, a choice target and a gameplay outcome all write that one field, so
 following a branch does not mean remembering a node name and scrolling to find it. The
-node list has a filter for the same reason ¡ª a story with thirty nodes is a list you scan,
+node list has a filter for the same reason ï¿½ï¿½ a story with thirty nodes is a list you scan,
 and scanning is what a filter is for. Neither feature touches the story, which is why
 neither needs an operation, a test of atomicity, or a place in the CLI.
