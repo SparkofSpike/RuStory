@@ -1,0 +1,279 @@
+//! Drives a story without a window.
+//!
+//! The CLI and the windowed player share this: one `click` means "do whatever
+//! the current mode needs next", so neither caller has to know whether that is
+//! finishing a line, advancing a beat, answering a choice or stepping a system.
+
+use std::collections::BTreeMap;
+use std::path::Path;
+
+use rustory_core::{GameplayRegistry, Mode, Narrative, NodeId, OutcomeKey, Story};
+use rustory_gameplay_timer::TimedChoice;
+use rustory_render::{Renderer, Rgba8Image};
+
+use crate::scene::{self, Scene, TextureBank};
+
+/// Every gameplay system the engine ships.
+///
+/// Adding a system means adding a line here and a crate beside it. Nothing in
+/// `rustory-core` changes, which is the whole claim being tested.
+#[must_use]
+pub fn default_registry() -> GameplayRegistry {
+    let mut registry = GameplayRegistry::new();
+    registry.register(Box::new(TimedChoice::new()));
+    registry
+}
+
+/// Upload every PNG in `dir`, keyed by file stem and by full file name.
+///
+/// A missing directory is not an error: a script with no art still renders its
+/// dialogue, and demanding assets before the first frame would make the engine
+/// feel broken on an empty checkout.
+#[must_use]
+pub fn load_textures(renderer: &mut Renderer, dir: &Path) -> TextureBank {
+    let mut bank = TextureBank::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return bank;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("png") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let Ok(image) = Rgba8Image::load_png(&path) else {
+            continue;
+        };
+        let id = renderer.upload_texture(&image, stem);
+        bank.insert(stem, id);
+        bank.insert(format!("{stem}.png"), id);
+    }
+    bank
+}
+
+/// Perform one interaction, whatever the current mode demands.
+///
+/// A choice always takes the first branch and gameplay is stepped without input,
+/// so a transcript or a captured frame is reproducible rather than random.
+pub fn click(narrative: &mut Narrative, registry: &mut GameplayRegistry) -> Result<(), String> {
+    match narrative.mode().clone() {
+        Mode::Revealing => {
+            narrative.tick(0, 0);
+            narrative.advance().map_err(|err| err.to_string())?;
+        }
+        Mode::AwaitingAdvance => {
+            narrative.advance().map_err(|err| err.to_string())?;
+        }
+        Mode::AwaitingChoice { choices, .. } => {
+            if choices.is_empty() {
+                return Err("choice node offers no choices".into());
+            }
+            narrative.choose(0).map_err(|err| err.to_string())?;
+        }
+        Mode::Suspended { .. } => {
+            // Bounded: a system that never reports would otherwise hang the CLI.
+            for _ in 0..100_000 {
+                narrative
+                    .step_gameplay(registry, 16, &[])
+                    .map_err(|err| err.to_string())?;
+                if !matches!(narrative.mode(), Mode::Suspended { .. }) {
+                    return Ok(());
+                }
+            }
+            return Err("gameplay system did not finish within 100000 steps".into());
+        }
+        Mode::Finished { .. } => {}
+    }
+    Ok(())
+}
+
+/// Build the draw list for the current state.
+#[must_use]
+pub fn build_frame<'a>(
+    narrative: &'a Narrative,
+    bank: &'a TextureBank,
+    prompt: Option<&'a str>,
+    hint: Option<&'a str>,
+) -> rustory_render::Frame {
+    Scene {
+        narrative,
+        textures: bank,
+        gameplay_prompt: prompt,
+        hint,
+    }
+    .build()
+}
+
+/// A readable description of the current mode, for logs and CLI output.
+#[must_use]
+pub fn describe_mode(narrative: &Narrative) -> String {
+    match narrative.mode() {
+        Mode::Revealing => "revealing".into(),
+        Mode::AwaitingAdvance => "awaiting advance".into(),
+        Mode::AwaitingChoice { choices, .. } => {
+            format!("awaiting choice ({} options)", choices.len())
+        }
+        Mode::Suspended { spec } => format!("gameplay: {}", spec.system),
+        Mode::Finished { ending } => match ending {
+            Some(ending) => format!("finished ({ending})"),
+            None => "finished".into(),
+        },
+    }
+}
+
+/// Play the whole story with automatic clicks and return the lines it showed.
+///
+/// This is how "is the story playable?" gets a real answer without a window. A
+/// story that loops back on itself is reported rather than spun on.
+pub fn transcript(story: Story, max_clicks: usize) -> Result<Vec<String>, String> {
+    let mut narrative = Narrative::new(story).map_err(|err| err.to_string())?;
+    let mut registry = default_registry();
+    let mut lines: Vec<String> = Vec::new();
+    let mut visits: BTreeMap<NodeId, usize> = BTreeMap::new();
+
+    narrative.tick(0, 0);
+    for _ in 0..max_clicks {
+        if let Some(line) = narrative.line() {
+            let text = scene::line_summary(&line);
+            if lines.last() != Some(&text) {
+                lines.push(text);
+            }
+        }
+
+        if matches!(narrative.mode(), Mode::Finished { .. }) {
+            break;
+        }
+
+        click(&mut narrative, &mut registry)?;
+
+        let count = visits.entry(narrative.cursor().clone()).or_insert(0);
+        *count += 1;
+        if *count > 64 {
+            return Err(format!(
+                "story revisits node `{}` more than 64 times",
+                narrative.cursor()
+            ));
+        }
+    }
+
+    Ok(lines)
+}
+
+/// Report the outcome keys the story expects, so a missing registration is
+/// visible before the scene is reached.
+#[must_use]
+pub fn required_systems(story: &Story) -> Vec<String> {
+    let mut ids: Vec<String> = story
+        .nodes
+        .values()
+        .filter_map(|node| match &node.exit {
+            rustory_core::Exit::Gameplay { spec } => Some(spec.system.to_string()),
+            _ => None,
+        })
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
+/// Outcome keys a system may report for a node. Used by `check` to warn when a
+/// well-known system's outcomes are not fully mapped.
+#[must_use]
+pub fn mapped_outcomes(story: &Story) -> BTreeMap<String, Vec<OutcomeKey>> {
+    let mut map = BTreeMap::new();
+    for node in story.nodes.values() {
+        if let rustory_core::Exit::Gameplay { spec } = &node.exit {
+            map.entry(spec.system.to_string())
+                .or_insert_with(Vec::new)
+                .extend(spec.outcomes.keys().cloned());
+        }
+    }
+    for keys in map.values_mut() {
+        keys.sort();
+        keys.dedup();
+    }
+    map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustory_core::{Beat, Exit, Node, StoryMeta};
+
+    fn demo() -> Story {
+        let text = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../stories/demo.ron"),
+        )
+        .expect("demo script is in the repository");
+        rustory_script::parse_story(&text, "demo.ron").expect("demo script is valid")
+    }
+
+    #[test]
+    fn the_demo_script_parses_and_validates() {
+        let story = demo();
+        assert!(story.nodes.len() >= 4);
+        assert_eq!(story.start.as_str(), "prologue");
+    }
+
+    #[test]
+    fn the_demo_script_reaches_an_ending() {
+        let lines = transcript(demo(), 200).expect("transcript");
+        assert!(!lines.is_empty(), "a story should say something");
+        assert!(
+            lines.iter().any(|line| line.contains("Yuki")),
+            "the speaker name should be shown: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn the_demo_requires_the_timer_system() {
+        assert_eq!(required_systems(&demo()), vec!["timer.timed_choice"]);
+    }
+
+    #[test]
+    fn the_default_registry_contains_the_timer() {
+        let registry = default_registry();
+        assert!(registry.contains(&rustory_core::SystemId::from(
+            rustory_gameplay_timer::SYSTEM_ID
+        )));
+    }
+
+    #[test]
+    fn a_story_that_never_ends_is_reported() {
+        // A self-loop with dialogue is legal — it just never terminates, which
+        // the transcript driver must notice instead of spinning forever.
+        let mut nodes = BTreeMap::new();
+        nodes.insert(
+            NodeId::from("loop"),
+            Node {
+                beats: vec![Beat::Say {
+                    speaker: None,
+                    text: "again".into(),
+                }],
+                exit: Exit::Goto {
+                    to: NodeId::from("loop"),
+                },
+            },
+        );
+        let story = Story {
+            meta: StoryMeta::default(),
+            start: NodeId::from("loop"),
+            nodes,
+        };
+
+        let err = transcript(story, 1000).expect_err("must report");
+        assert!(err.contains("revisits node"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn every_gameplay_node_maps_at_least_one_outcome() {
+        let mapped = mapped_outcomes(&demo());
+        let timer = mapped.get("timer.timed_choice").expect("timer is used");
+        assert!(timer.contains(&OutcomeKey::from("correct")));
+        assert!(timer.contains(&OutcomeKey::from("timeout")));
+    }
+}

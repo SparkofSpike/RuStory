@@ -1,0 +1,400 @@
+//! The windowed player.
+//!
+//! This is the only place that knows a window exists. It owns the event loop,
+//! translates platform input into narrative intents, and hands the resulting
+//! draw list to the renderer. Game state stays in `rustory-core`, which has never
+//! heard of a mouse.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Instant;
+
+use rustory_core::{GameplayInput, GameplayRegistry, Mode, Narrative};
+use rustory_render::{Renderer, TARGET_FORMAT};
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::window::{Window, WindowId};
+
+use crate::driver;
+use crate::scene::{TextureBank, HEIGHT, WIDTH};
+
+/// Characters per second for the typewriter. Fast enough to stay out of the way,
+/// slow enough that the reveal is visible.
+const CHARS_PER_SEC: u32 = 45;
+
+const HINT: &str = "Click / Space: advance   1-9: choose   Esc: quit";
+
+pub fn run(args: &[String]) -> Result<(), String> {
+    let mut story_path = None;
+    let mut assets = PathBuf::from("assets");
+
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--assets" => {
+                index += 1;
+                assets = PathBuf::from(args.get(index).ok_or("--assets needs a path")?);
+            }
+            other if other.starts_with("--") => return Err(format!("unknown option `{other}`")),
+            other => {
+                if story_path.is_some() {
+                    return Err(format!("unexpected argument `{other}`"));
+                }
+                story_path = Some(PathBuf::from(other));
+            }
+        }
+        index += 1;
+    }
+
+    let story_path = story_path.ok_or("play needs a story path")?;
+    let story = rustory_script::load_story(&story_path).map_err(|err| err.to_string())?;
+    let narrative = Narrative::new(story).map_err(|err| err.to_string())?;
+
+    let event_loop = EventLoop::new().map_err(|err| err.to_string())?;
+    // Continuous redraw: the typewriter needs frames even when nothing moves.
+    event_loop.set_control_flow(ControlFlow::Poll);
+
+    let mut player = Player::new(narrative, assets);
+    event_loop.run_app(&mut player).map_err(|err| err.to_string())
+}
+
+struct Gpu {
+    surface: wgpu::Surface<'static>,
+    config: wgpu::SurfaceConfiguration,
+    renderer: Renderer,
+    bank: TextureBank,
+}
+
+struct Player {
+    narrative: Narrative,
+    registry: GameplayRegistry,
+    assets: PathBuf,
+
+    window: Option<Arc<Window>>,
+    gpu: Option<Gpu>,
+
+    last_tick: Instant,
+    /// Inputs collected since the previous frame, handed to a gameplay system.
+    pending_inputs: Vec<GameplayInput>,
+}
+
+impl Player {
+    fn new(narrative: Narrative, assets: PathBuf) -> Self {
+        Self {
+            narrative,
+            registry: driver::default_registry(),
+            assets,
+            window: None,
+            gpu: None,
+            last_tick: Instant::now(),
+            pending_inputs: Vec::new(),
+        }
+    }
+
+    fn init_gpu(&mut self, window: Arc<Window>) -> Result<(), String> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let surface = instance
+            .create_surface(window.clone())
+            .map_err(|err| format!("cannot create a surface: {err}"))?;
+
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: Some(&surface),
+            apply_limit_buckets: false,
+        }))
+        .map_err(|err| format!("no adapter can present to this window: {err}"))?;
+
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("rustory window device"),
+            ..Default::default()
+        }))
+        .map_err(|err| format!("cannot create a device: {err}"))?;
+
+        let caps = surface.get_capabilities(&adapter);
+        if !caps.formats.contains(&TARGET_FORMAT) {
+            // The renderer builds one pipeline for one format. Saying so beats
+            // rendering a blank window on an exotic surface.
+            return Err(format!(
+                "surface does not support {TARGET_FORMAT:?}; supported: {:?}",
+                caps.formats
+            ));
+        }
+
+        let size = window.inner_size();
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: TARGET_FORMAT,
+            width: size.width.max(1),
+            height: size.height.max(1),
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: caps.alpha_modes[0],
+            // Auto resolves to plain sRGB for an 8-bit format, which is what a
+            // visual novel wants: no HDR, no wide gamut, no surprises.
+            color_space: wgpu::SurfaceColorSpace::Auto,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &config);
+
+        let mut renderer =
+            Renderer::from_device(device, queue, config.width, config.height)
+                .map_err(|err| err.to_string())?;
+        let bank = driver::load_textures(&mut renderer, &self.assets);
+
+        self.gpu = Some(Gpu {
+            surface,
+            config,
+            renderer,
+            bank,
+        });
+        Ok(())
+    }
+
+    fn resize(&mut self, width: u32, height: u32) {
+        let Some(gpu) = self.gpu.as_mut() else {
+            return;
+        };
+        if width == 0 || height == 0 {
+            return;
+        }
+        gpu.config.width = width;
+        gpu.config.height = height;
+        gpu.surface.configure(gpu.renderer.device(), &gpu.config);
+        gpu.renderer.resize(width, height);
+    }
+
+    /// Advance game state by `dt_ms` and draw.
+    fn update_and_draw(&mut self) {
+        let now = Instant::now();
+        let dt_ms = (now - self.last_tick).as_millis().min(100) as u32;
+        self.last_tick = now;
+
+        // A gameplay system drives its own clock, so the narrative is ticked
+        // separately: while suspended there is no line to reveal anyway.
+        self.narrative.tick(dt_ms, CHARS_PER_SEC);
+
+        if matches!(self.narrative.mode(), Mode::Suspended { .. }) {
+            let inputs = std::mem::take(&mut self.pending_inputs);
+            if let Err(err) = self
+                .narrative
+                .step_gameplay(&mut self.registry, dt_ms, &inputs)
+            {
+                eprintln!("rustory: gameplay error: {err}");
+            }
+        } else {
+            // Inputs that arrived while nothing was listening must not leak into
+            // the next scene.
+            self.pending_inputs.clear();
+        }
+
+        let Some(gpu) = self.gpu.as_mut() else {
+            return;
+        };
+
+        let prompt = self.narrative.gameplay_prompt(&self.registry);
+        // The window may be a different size than the logical resolution; the
+        // scene is laid out at the logical size and scaled by the surface.
+        let mut frame = driver::build_frame(&self.narrative, &gpu.bank, prompt.as_deref(), Some(HINT));
+        frame.width = gpu.config.width;
+        frame.height = gpu.config.height;
+        letterbox(&mut frame);
+
+        // A lost or outdated surface is recoverable: reconfigure and try again
+        // next frame instead of tearing the process down.
+        let acquired = match gpu.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(texture) => texture,
+            wgpu::CurrentSurfaceTexture::Suboptimal(texture) => texture,
+            _ => {
+                gpu.surface.configure(gpu.renderer.device(), &gpu.config);
+                return;
+            }
+        };
+        let view = acquired
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        if let Err(err) = gpu.renderer.render_to(&frame, &view) {
+            eprintln!("rustory: render error: {err}");
+            return;
+        }
+        // Presentation moved from SurfaceTexture to Queue in wgpu 30.
+        gpu.renderer.queue().present(acquired);
+    }
+
+    fn on_confirm(&mut self) {
+        if matches!(self.narrative.mode(), Mode::Suspended { .. }) {
+            self.pending_inputs.push(GameplayInput::Confirm);
+            return;
+        }
+        if let Err(err) = driver::click(&mut self.narrative, &mut self.registry) {
+            eprintln!("rustory: {err}");
+        }
+    }
+
+    fn on_select(&mut self, index: usize) {
+        match self.narrative.mode() {
+            Mode::Suspended { .. } => self.pending_inputs.push(GameplayInput::Select { index }),
+            Mode::AwaitingChoice { choices, .. } => {
+                if index < choices.len()
+                    && let Err(err) = self.narrative.choose(index)
+                {
+                    eprintln!("rustory: {err}");
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Fit a logical-resolution scene into whatever the window actually is.
+///
+/// The scene is authored at [`WIDTH`]x[`HEIGHT`]; a different window size should
+/// not rescale the dialogue into illegibility, so the frame is centred and
+/// painted over black bars instead.
+fn letterbox(frame: &mut rustory_render::Frame) {
+    if frame.width == WIDTH && frame.height == HEIGHT {
+        return;
+    }
+    let scale = (frame.width as f32 / WIDTH as f32)
+        .min(frame.height as f32 / HEIGHT as f32);
+    let offset_x = (frame.width as f32 - WIDTH as f32 * scale) / 2.0;
+    let offset_y = (frame.height as f32 - HEIGHT as f32 * scale) / 2.0;
+
+    for quad in &mut frame.quads {
+        quad.rect.x = quad.rect.x * scale + offset_x;
+        quad.rect.y = quad.rect.y * scale + offset_y;
+        quad.rect.width *= scale;
+        quad.rect.height *= scale;
+    }
+    for text in &mut frame.texts {
+        text.x = text.x * scale + offset_x;
+        text.y = text.y * scale + offset_y;
+        text.font_size *= scale;
+        text.line_height *= scale;
+        if text.max_width.is_finite() {
+            text.max_width *= scale;
+        }
+    }
+}
+
+impl ApplicationHandler for Player {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+
+        let attributes = Window::default_attributes()
+            .with_title("RuStory")
+            .with_inner_size(winit::dpi::LogicalSize::new(WIDTH, HEIGHT));
+        let window = match event_loop.create_window(attributes) {
+            Ok(window) => Arc::new(window),
+            Err(err) => {
+                eprintln!("rustory: cannot create a window: {err}");
+                event_loop.exit();
+                return;
+            }
+        };
+
+        if let Err(err) = self.init_gpu(window.clone()) {
+            eprintln!("rustory: {err}");
+            event_loop.exit();
+            return;
+        }
+
+        self.window = Some(window);
+        self.last_tick = Instant::now();
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => self.resize(size.width, size.height),
+            WindowEvent::RedrawRequested => self.update_and_draw(),
+            WindowEvent::MouseInput {
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+                ..
+            } => self.on_confirm(),
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.state != ElementState::Pressed {
+                    return;
+                }
+                match event.physical_key {
+                    PhysicalKey::Code(KeyCode::Escape) => event_loop.exit(),
+                    PhysicalKey::Code(KeyCode::Space | KeyCode::Enter) => self.on_confirm(),
+                    PhysicalKey::Code(code) => {
+                        if let Some(index) = digit_index(code) {
+                            self.on_select(index);
+                        }
+                    }
+                    PhysicalKey::Unidentified(_) => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+/// Map the top-row digits to zero-based option indices.
+fn digit_index(code: KeyCode) -> Option<usize> {
+    match code {
+        KeyCode::Digit1 => Some(0),
+        KeyCode::Digit2 => Some(1),
+        KeyCode::Digit3 => Some(2),
+        KeyCode::Digit4 => Some(3),
+        KeyCode::Digit5 => Some(4),
+        KeyCode::Digit6 => Some(5),
+        KeyCode::Digit7 => Some(6),
+        KeyCode::Digit8 => Some(7),
+        KeyCode::Digit9 => Some(8),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn digits_map_to_zero_based_indices() {
+        assert_eq!(digit_index(KeyCode::Digit1), Some(0));
+        assert_eq!(digit_index(KeyCode::Digit9), Some(8));
+        assert_eq!(digit_index(KeyCode::KeyA), None);
+    }
+
+    #[test]
+    fn letterboxing_keeps_a_matching_size_untouched() {
+        let mut frame = rustory_render::Frame::new(WIDTH, HEIGHT);
+        frame.push_quad(rustory_render::Quad::solid(
+            rustory_render::Rect::new(10.0, 20.0, 30.0, 40.0),
+            rustory_render::Rgba::rgb(255, 255, 255),
+        ));
+        let before = frame.quads[0].rect;
+        letterbox(&mut frame);
+        assert_eq!(frame.quads[0].rect, before);
+    }
+
+    #[test]
+    fn letterboxing_scales_and_centres_a_larger_window() {
+        let mut frame = rustory_render::Frame::new(2560, 1440);
+        frame.push_quad(rustory_render::Quad::solid(
+            rustory_render::Rect::new(0.0, 0.0, WIDTH as f32, HEIGHT as f32),
+            rustory_render::Rgba::rgb(255, 255, 255),
+        ));
+        letterbox(&mut frame);
+
+        let rect = frame.quads[0].rect;
+        assert!((rect.width - 2560.0).abs() < 0.01, "full width at 2x");
+        assert!((rect.height - 1440.0).abs() < 0.01, "full height at 2x");
+        assert!((rect.x).abs() < 0.01);
+    }
+}

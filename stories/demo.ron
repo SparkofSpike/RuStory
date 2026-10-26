@@ -1,0 +1,87 @@
+// RuStory demo script.
+//
+// This is the vertical slice: background, sprites, typewriter dialogue, a
+// branch, and a gameplay handover. It is also the reference for the script
+// syntax, so keep it readable.
+//
+// Note the RON shape: struct variants take named fields, tuple variants take a
+// value, and `Option` fields must say `Some(...)`.
+
+Story(
+    meta: (
+        title: Some("RuStory demo"),
+        author: Some("Slide 1"),
+    ),
+    start: "prologue",
+    nodes: {
+        "prologue": (
+            beats: [
+                SetBackground(image: Some("bg_classroom.png")),
+                Say(speaker: None, text: "放学后的教室，只剩下两个人。"),
+                ShowActor(actor: "yuki", pose: "yuki_smile", slot: Left),
+                Say(speaker: Some("yuki"), text: "你还没走？"),
+                ShowActor(actor: "kai", pose: "kai_neutral", slot: Right),
+                Say(speaker: Some("kai"), text: "在等你。"),
+                Say(speaker: Some("yuki"), text: "……等我做什么？"),
+            ],
+            exit: Choose(
+                prompt: Some("要怎么回答？"),
+                choices: [
+                    (label: "老实说", to: "honest"),
+                    (label: "岔开话题", to: "deflect"),
+                ],
+            ),
+        ),
+
+        "honest": (
+            beats: [
+                HideActor(actor: "kai"),
+                Say(speaker: Some("yuki"), text: "那你说吧。我听着。"),
+            ],
+            exit: Gameplay(spec: (
+                system: "timer.timed_choice",
+                config: Some((
+                    prompt: Some("她盯着你，等一个答案。"),
+                    duration_ms: 5000,
+                    options: [
+                        "「我喜欢你。」",
+                        "「……没什么。」",
+                    ],
+                    correct: 0,
+                )),
+                outcomes: {
+                    "correct": "confession",
+                    "wrong": "awkward",
+                    "timeout": "awkward",
+                },
+            )),
+        ),
+
+        "deflect": (
+            beats: [
+                Say(speaker: Some("yuki"), text: "转移话题。你啊……"),
+                SetBackground(image: None),
+                HideActor(actor: "yuki"),
+                HideActor(actor: "kai"),
+                Say(speaker: None, text: "窗外的天色暗了下来。"),
+            ],
+            exit: End(ending: Some("躲开了")),
+        ),
+
+        "confession": (
+            beats: [
+                Say(speaker: Some("yuki"), text: "……嗯。我等你这句话很久了。"),
+                Say(speaker: None, text: "粉笔灰在光里慢慢落下。"),
+            ],
+            exit: End(ending: Some("说出口")),
+        ),
+
+        "awkward": (
+            beats: [
+                Say(speaker: Some("yuki"), text: "……这样啊。"),
+                Say(speaker: None, text: "她没有再问。放学铃响了。"),
+            ],
+            exit: End(ending: Some("没说清")),
+        ),
+    },
+)

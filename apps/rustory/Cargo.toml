@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "rustory"
 version.workspace = true
 edition.workspace = true
@@ -14,5 +14,7 @@ path = "src/main.rs"
 rustory-core = { workspace = true }
 rustory-script = { workspace = true }
 rustory-render = { workspace = true }
+rustory-gameplay-timer = { workspace = true }
 winit = { workspace = true }
 wgpu = { workspace = true }
+pollster = { workspace = true }

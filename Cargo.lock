@@ -1731,7 +1731,9 @@ dependencies = [
 name = "rustory"
 version = "0.1.0"
 dependencies = [
+ "pollster",
  "rustory-core",
+ "rustory-gameplay-timer",
  "rustory-render",
  "rustory-script",
  "wgpu",
