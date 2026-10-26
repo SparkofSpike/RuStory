@@ -56,22 +56,15 @@ pub fn ops(as_json: bool) -> Report {
     let catalogue = rustory_edit::catalogue();
 
     if as_json {
-        let entries: Vec<serde_json::Value> = catalogue
-            .iter()
-            .map(|info| {
-                serde_json::json!({
-                    "name": info.name,
-                    "summary": info.summary,
-                    "changes_structure": info.changes_structure,
-                })
-            })
-            .collect();
+        // Serialised from the catalogue rather than rebuilt field by field: a second
+        // hand-maintained copy of this shape is exactly how the example would go missing
+        // from the CLI while existing in the library.
         println!(
             "{}",
             serde_json::json!({
                 "ok": true,
                 "count": catalogue.len(),
-                "operations": entries,
+                "operations": catalogue,
             })
         );
         return Report::ok(format!("{} operations", catalogue.len()), false);
@@ -81,9 +74,12 @@ pub fn ops(as_json: bool) -> Report {
     for info in &catalogue {
         let marker = if info.changes_structure { "*" } else { " " };
         println!("{marker} {:<18} {}", info.name, info.summary);
+        // The example goes right under the description: an agent reading `ops` is one
+        // paste away from a correct operation instead of guessing field names.
+        println!("  {}", info.example);
     }
     println!("\n* marks operations that add or remove nodes, beats or options.");
-    println!("Each takes JSON: {{\"op\": \"<name>\", ...fields}}");
+    println!("Each example above parses as written: change the values, keep the shape.");
     Report::ok(format!("{} operations", catalogue.len()), false)
 }
 

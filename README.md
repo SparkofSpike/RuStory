@@ -78,6 +78,10 @@ $ cargo run -p rustory -- inspect stories/demo.ron --json
 $ cargo run -p rustory -- edit stories/demo.ron --op '{"op":"CreateNode","id":"epilogue"}'
 ```
 
+`ops` prints a JSON body for each operation that parses as written — copy one and change
+its values, rather than inferring field names from prose. `--json` output is a single
+document on stdout; anything else goes to stderr, so a parser can trust it.
+
 The editor is a normal desktop application: **New / Open / Save / Save as** with
 `Ctrl+N`, `Ctrl+O`, `Ctrl+S`, `Ctrl+Shift+S`, undo and redo on `Ctrl+Z` / `Ctrl+Y`, and a
 prompt before anything throws away unsaved work. **Recent** keeps the last ten stories one

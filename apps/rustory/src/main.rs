@@ -93,13 +93,14 @@ fn run(args: &[String]) -> Result<(), String> {
         "play" => play::run(&args[1..]),
         "save" => save_cmd(&args[1..]),
         "resume" => resume_cmd(&args[1..]),
-        "ops" => finish(edit_cli::ops(args.iter().any(|arg| arg == "--json"))),
+        "ops" => {
+            let as_json = args.iter().any(|arg| arg == "--json");
+            finish_quiet(edit_cli::ops(as_json), as_json)
+        }
         "inspect" => {
             let path = args.get(1).ok_or("inspect needs a story path")?;
-            finish(edit_cli::inspect(
-                Path::new(path),
-                args.iter().any(|arg| arg == "--json"),
-            ))
+            let as_json = args.iter().any(|arg| arg == "--json");
+            finish_quiet(edit_cli::inspect(Path::new(path), as_json), as_json)
         }
         "edit" => edit_cmd(&args[1..]),
         "help" | "--help" | "-h" => {
@@ -506,9 +507,19 @@ fn unused(_: Rgba8Image) {}
 ///
 /// A single place so every editing command agrees on what failure looks like: an
 /// agent checking `$?` and an agent reading `"ok": false` must never disagree.
-fn finish(report: edit_cli::Report) -> Result<(), String> {
+/// Print the human summary unless JSON was asked for.
+///
+/// In JSON mode stdout must contain the document and nothing else: a parser that finds
+/// "17 operations" after the closing brace is entitled to call the output broken, and
+/// it would be right. The summary still goes to stderr so a person watching the terminal
+/// is not left with silence.
+fn finish_quiet(report: edit_cli::Report, quiet: bool) -> Result<(), String> {
     if report.ok {
-        if report.problems.is_empty() {
+        if quiet {
+            if !report.problems.is_empty() {
+                eprintln!("{}", report.problems.join("; "));
+            }
+        } else if report.problems.is_empty() {
             println!("{}", report.message);
         } else {
             println!("{}", report.problems.join("; "));
@@ -565,7 +576,10 @@ fn edit_cmd(args: &[String]) -> Result<(), String> {
         }
     };
 
-    finish(edit_cli::edit(&story_path, &ops, !dry_run, as_json))
+    finish_quiet(
+        edit_cli::edit(&story_path, &ops, !dry_run, as_json),
+        as_json,
+    )
 }
 
 #[cfg(test)]
