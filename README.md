@@ -7,73 +7,102 @@ warp, gameplay is the weft. Adding a new gameplay system should mean weaving in
 another thread — not tearing the cloth open and patching it back together.
 
 > Not an official Rust project. Not affiliated with or endorsed by the Rust
-> Foundation. The name contains "Rust" for the language it is written in; the
-> Rust name and logo policy applies to the Rust project itself, not to this
-> engine.
+> Foundation. The name contains "Rust" for the language it is written in.
+
+![Dialogue](shots/dialogue.png)
 
 ---
 
-## Why
+## The claim, and how it is tested
 
-Most visual novel engines are narrative-centric: a single event loop plays a
-script, and anything that is not dialogue — combat, puzzles, management — has to
-be bolted on from the outside. The narrative system and the gameplay system then
-share state with no contract the compiler can check, and the result is timing
-bugs and shape mismatches discovered at runtime.
+The whole design rests on one falsifiable statement:
 
-RuStory takes the opposite position:
+> Adding a gameplay system does not change the narrative core.
 
-- **Explicit boundaries.** Cross-system state is modelled with `enum`, `trait`
-  and explicit events. What the compiler can reject, we never leave to runtime.
-- **Data and behaviour are separate.** A gameplay system reads and writes only
-  the state it declares. It talks to the narrative system through a small,
-  named contract.
-- **Extension is addition.** A new gameplay system registers itself. It does not
-  edit the narrative core.
-- **Readability is a first-class requirement.** No implicit global mutable
-  state, no dynamically shaped bags of values.
+`rustory-core` has no mention of timers, options, rounds, scores or correctness.
+`crates/rustory-gameplay-timer` implements all of that in its own crate, parses
+its own config, and reports outcome keys that the *script* maps to nodes.
+
+The entire integration is one line:
+
+```rust
+registry.register(Box::new(TimedChoice::new()));
+```
+
+If adding a system ever requires editing `rustory-core`, the contract is wrong
+and the contract gets fixed — not the core.
 
 ## Status
 
-**Scaffold.** This repository is at the very beginning. What currently works:
+**Playable vertical slice.** Working today:
+
+- Load a story from RON, with reference checking before the first frame
+- Background, sprites and typewriter dialogue
+- Click to advance; first click completes the line, second advances
+- Branching choices
+- Gameplay handover: a timed choice takes control, then returns it
+- `rustory play` in a window, or `rustory shot` to render a frame headlessly
+- 69 tests, including offscreen GPU renders that assert where things land
+
+Not yet: audio, save/load, WASM plugins, an authoring tool. Those have ADRs
+describing the plan, not code pretending to be one.
+
+## Try it
 
 ```console
-$ cargo run -p rustory
-rustory 0.1.0 — scaffold only, no playable slice yet
-core:   rustory-core
-script: rustory-script
-gpu:    Intel(R) RaptorLake-S Mobile Graphics Controller [Intel Corporation / Vulkan]
-text:   436 system fonts discovered
+$ cargo run -p rustory -- gen-assets assets      # placeholder art
+$ cargo run -p rustory -- check stories/demo.ron # parse + validate
+$ cargo run -p rustory -- play stories/demo.ron  # play it
+$ cargo run -p rustory -- shot stories/demo.ron --out frame.png --advance 4
 ```
 
-That is a real GPU adapter probe and a real font-stack probe — it verifies the
-rendering foundation is usable on the host machine. There is **no playable
-slice yet**: no story format, no state machine, no dialogue rendering.
+The demo runs without a window too:
 
-Everything below in [Architecture](#architecture) describes intended structure,
-not shipped behaviour. See [`HANDOFF.md`](HANDOFF.md) for the task sequence and
-[`docs/adr/`](docs/adr/) for decisions made so far.
+```console
+$ cargo run -p rustory -- transcript stories/demo.ron
+放学后的教室，只剩下两个人。
+Yuki: 你还没走？
+Kai: 在等你。
+...
+```
+
+## Screens
+
+| Dialogue | Choice | Gameplay |
+|---|---|---|
+| ![dialogue](shots/dialogue.png) | ![choice](shots/choice.png) | ![gameplay](shots/gameplay.png) |
+
+The art is generated procedurally by `rustory gen-assets` — no binaries in the
+repository, and the code that draws it is reviewable.
 
 ## Architecture
 
 The engine is written directly against the platform, without a third-party game
-engine underneath. The split is: **game semantics are ours, operating-system
-abstractions are borrowed.**
+engine underneath. **Game semantics are ours; operating-system abstractions are
+borrowed.**
 
 | Layer | Crate | Owns |
 |---|---|---|
-| Narrative core | `rustory-core` | World and component storage, system scheduling, narrative state machine, gameplay contract |
-| Story format | `rustory-script` | RON schema, loading, referential validation |
-| Renderer | `rustory-render` | 2D quad and text pipeline on `wgpu` |
-| Application | `apps/rustory` | `winit` event loop, CLI |
+| Narrative core | `rustory-core` | Story model, state machine, gameplay contract. Zero rendering dependencies |
+| Story format | `rustory-script` | RON loading, reference validation |
+| Renderer | `rustory-render` | Draw list → pixels on `wgpu`. Knows nothing about stories |
+| Gameplay | `rustory-gameplay-timer` | One system, proving the extension model |
+| Application | `apps/rustory` | CLI, layout, window, input |
 
-Borrowed from the platform, deliberately not reinvented: `winit` (window and
-input), `wgpu` (GPU backend), `glyphon` / `cosmic-text` / `swash` (text shaping
-and glyph rasterization), `rodio` or `kira` (audio, not yet wired).
+Dependencies point one way: everything depends on `rustory-core`; the core
+depends on nothing above it.
 
-`rustory-core` has **zero rendering dependencies** and must stay testable
-without a window or a GPU. Dependencies point one way: `render → core`,
-`script → core`, `app → all`. The core never depends upward.
+Three boundaries are enforced by types rather than convention:
+
+1. **The core never parses a gameplay config.** A `GameplaySpec` carries an
+   opaque `ron::Value`; each system parses its own.
+2. **A gameplay system cannot see the stage or the story graph.** It receives
+   `GameplayContext { dt_ms, inputs, &mut Stats }` and nothing else.
+3. **The renderer cannot see game concepts.** It consumes a `Frame` — quads and
+   text runs — so layout is testable without a GPU.
+
+Read [`docs/architecture.md`](docs/architecture.md) for the full picture and
+[`docs/adr/`](docs/adr/) for why each decision went the way it did.
 
 ## Building
 
@@ -81,25 +110,54 @@ Requires Rust 1.85+ (edition 2024) and, on Windows, the MSVC toolchain.
 
 ```console
 cargo check --workspace     # fastest feedback
-cargo build                 # first run pulls the wgpu dependency tree; minutes
-cargo run -p rustory        # platform probe
-cargo test --workspace      # core logic, no GPU required
+cargo build                 # first run pulls the wgpu tree; minutes
+cargo test --workspace      # 69 tests; render tests skip without a GPU
+cargo run -p rustory -- probe
 ```
 
-The dev profile builds dependencies at `opt-level = 3` (an unoptimized
-`wgpu`/`naga` build is slow enough to make frame-rate problems unreadable) while
-keeping workspace crates at `opt-level = 1` for incremental builds.
+The dev profile builds dependencies at `opt-level = 3` — an unoptimized
+`wgpu`/`naga` build is slow enough that a frame-rate problem looks like a
+renderer bug — while workspace crates stay at `opt-level = 1`.
+
+## Writing a story
+
+```ron
+Story(
+    start: "prologue",
+    nodes: {
+        "prologue": (
+            beats: [
+                SetBackground(image: Some("bg_classroom.png")),
+                Say(speaker: None, text: "The bell rings."),
+                ShowActor(actor: "yuki", pose: "yuki_smile", slot: Left),
+                Say(speaker: Some("yuki"), text: "You are still here?"),
+            ],
+            exit: Choose(
+                prompt: Some("How do you answer?"),
+                choices: [
+                    (label: "Honestly", to: "honest"),
+                    (label: "Change the subject", to: "deflect"),
+                ],
+            ),
+        ),
+    },
+)
+```
+
+See [`stories/demo.ron`](stories/demo.ron) for a complete example, including a
+gameplay handover. The demo text is Chinese, which also exercises CJK shaping and
+line breaking.
+
+## Adding gameplay
+
+See [`docs/gameplay-integration.md`](docs/gameplay-integration.md). Short
+version: new crate, implement `GameplaySystem`, register one line, reference it
+from a script.
 
 ## Contributing
 
 Read [`AGENTS.md`](AGENTS.md) first — it is the operating standard for this
-repository, and it is written for both humans and coding agents. The four rules
-that matter most:
-
-1. The engine is ours; no third-party game engine.
-2. Extension is addition; a new gameplay system never edits the core.
-3. Boundaries are verifiable; prefer compiler errors over runtime surprises.
-4. No unverified claims in documentation.
+repository and is written for both humans and coding agents.
 
 Commits follow Conventional Commits in English, one logical change per commit.
 
