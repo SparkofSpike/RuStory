@@ -349,6 +349,38 @@ impl Editor {
             }
         }
 
+        // Reachability is a content problem, not a structural one: the story loads and
+        // plays, but the author has written a scene nothing can arrive at. Reported
+        // rather than refused, because a draft branch is a normal state while writing.
+        let mut reached = std::collections::BTreeSet::new();
+        let mut queue = std::collections::VecDeque::new();
+        if story.nodes.contains_key(&story.start) {
+            queue.push_back(story.start.clone());
+        }
+        while let Some(id) = queue.pop_front() {
+            if !reached.insert(id.clone()) {
+                continue;
+            }
+            let Some(node) = story.nodes.get(&id) else {
+                continue;
+            };
+            match &node.exit {
+                rustory_core::Exit::End { .. } => {}
+                rustory_core::Exit::Goto { to } => queue.push_back(to.clone()),
+                rustory_core::Exit::Choose { choices, .. } => {
+                    queue.extend(choices.iter().map(|choice| choice.to.clone()));
+                }
+                rustory_core::Exit::Gameplay { spec } => {
+                    queue.extend(spec.outcomes.values().cloned());
+                }
+            }
+        }
+        for id in story.nodes.keys() {
+            if !reached.contains(id) {
+                found.push(format!("node `{id}` cannot be reached from the start"));
+            }
+        }
+
         found
     }
 }

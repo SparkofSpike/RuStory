@@ -787,9 +787,36 @@ fn problems_reports_every_fault_not_just_the_first() {
     let editor = Editor::new(Document::new(broken, "broken.ron"));
     let problems = editor.problems();
 
-    assert_eq!(problems.len(), 2, "got {problems:#?}");
+    // Three faults: two dangling references, and `b` — which nothing can reach because
+    // `a` points at a node that does not exist.
+    assert_eq!(problems.len(), 3, "got {problems:#?}");
     assert!(problems.iter().any(|p| p.contains("gone1")));
     assert!(problems.iter().any(|p| p.contains("gone2")));
+    assert!(
+        problems
+            .iter()
+            .any(|p| p.contains("`b`") && p.contains("reached")),
+        "got {problems:#?}"
+    );
+}
+
+#[test]
+fn a_node_nothing_points_at_is_reported_as_unreachable() {
+    let mut editor = linked();
+    editor
+        .apply(&EditOp::CreateNode {
+            id: NodeId::from("orphan"),
+            at: None,
+        })
+        .expect("create");
+
+    let problems = editor.problems();
+    assert!(
+        problems
+            .iter()
+            .any(|problem| problem.contains("orphan") && problem.contains("cannot be reached")),
+        "got {problems:#?}"
+    );
 }
 
 #[test]

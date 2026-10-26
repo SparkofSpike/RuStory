@@ -119,6 +119,10 @@ Deleting a node that is still referenced is refused, and the error names every
 referrer. Deleting the last choice of a branch is refused rather than silently
 turning the exit into an `End`.
 
+Content problems that are not errors are reported instead: a node no path can reach, a
+gameplay node that maps no outcomes. They are listed in the preview panel and in the
+status bar, not refused, because a draft branch is a normal state while writing.
+
 The preview panel is the real engine — `rustory_render` drawing the same `Frame` that
 `rustory play` shows — and it starts at the node you have selected, so clicking a node
 shows that node's frame rather than the top of the story. It is a playthrough, not a
