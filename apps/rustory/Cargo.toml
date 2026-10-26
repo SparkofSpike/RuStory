@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "rustory"
 version.workspace = true
 edition.workspace = true
@@ -18,3 +18,7 @@ rustory-gameplay-timer = { workspace = true }
 winit = { workspace = true }
 wgpu = { workspace = true }
 pollster = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }
+ron = { workspace = true }

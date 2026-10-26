@@ -1732,10 +1732,12 @@ name = "rustory"
 version = "0.1.0"
 dependencies = [
  "pollster",
+ "ron",
  "rustory-core",
  "rustory-gameplay-timer",
  "rustory-render",
  "rustory-script",
+ "serde",
  "wgpu",
  "winit",
 ]

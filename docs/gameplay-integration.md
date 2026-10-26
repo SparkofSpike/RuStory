@@ -118,7 +118,9 @@ impl GameplaySystem for MySystem {
     }
 
     fn step(&mut self, ctx: &mut GameplayContext<'_>) -> Option<OutcomeKey> {
-        let config = self.config.as_ref()?;
+        // Guard: `step` may be called before `begin` completed, and there is
+        // nothing to do until it has.
+        self.config.as_ref()?;
 
         // 输入优先于时钟：同一帧的选择算数
         for input in ctx.inputs {
