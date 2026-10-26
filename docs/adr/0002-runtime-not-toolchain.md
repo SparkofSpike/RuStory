@@ -1,70 +1,83 @@
-# ADR 0002 — 引擎是运行时，不是创作工具链
+# ADR 0002 — The engine is a runtime, not an authoring toolchain
 
-- **状态**：已采纳（Accepted）
-- **日期**：2026-10-26
-- **对应待决问题**：HANDOFF §4.3 第 1 问
+- **Status**: Accepted
+- **Date**: 2026-10-26
+- **Open question**: is the engine a runtime or a toolchain?
 
 ---
 
-## 背景
+## Context
 
-HANDOFF 里「生成器」这个词有两种可能含义，且在项目讨论中被混用过：
+The word "generator" carried two possible meanings in early project discussions,
+and they were used interchangeably:
 
-- **运行时**：引擎读取一份剧本，解释执行，产出可玩画面。
-- **工具链**：辅助创作者（人或 AI）生成剧本、立绘、配音、分支结构。
+- **Runtime**: the engine reads a script, interprets it, and produces playable
+  output.
+- **Toolchain**: software that helps a creator (human or AI) produce scripts,
+  sprites, voice and branching structure.
 
-两者都能叫「引擎」，但工程重心完全不同。不先钉死，MVP 范围无法收敛。
+Both can be called "an engine", but they are entirely different engineering
+efforts. Without settling this first, the MVP scope cannot converge.
 
-## 选项
+## Options
 
-### A. 纯运行时
+### A. Runtime only
 
-引擎只消费已经写好的剧本。创作交给外部编辑器或 AI。
+The engine consumes finished scripts. Authoring happens in an external editor or
+in an AI tool.
 
-### B. 纯工具链
+### B. Toolchain only
 
-引擎是创作辅助：生成剧本、校验结构、预览素材，不负责播放。
+The engine is authoring assistance: generate scripts, validate structure, preview
+assets. It does not play anything.
 
-### C. 运行时为核，工具链为附属
+### C. Runtime as the core, toolchain as a satellite
 
-引擎是运行时；工具链作为**共享同一份数据模型**的独立工具存在
-（校验器、预览器、未来的可视化编辑器）。
+The engine is a runtime. Tooling exists as separate programs that **share one data
+model** — a validator, a previewer, eventually a visual editor.
 
-## 决策
+## Decision
 
-**采用 C，且 MVP 阶段只做 A 的部分。**
+**Adopt C, and build only the A part during the MVP.**
 
-## 理由
+## Reasoning
 
-1. **没有运行时，工具链无处校验。** 一个剧本生成器如果无法证明生成的剧本
-   能被正确播放，它的输出就是不可信的。运行时是工具链的**验收器**。
-2. **共享数据模型是工具链低成本的前提。** `rustory-core` 已经定义了
-   `Story`/`Node`/`Beat`/`Exit`。未来任何工具只需求解这份模型，不必重新发明。
-   本仓库的 `rustory check` 已经是这样一个最小工具的实例。
-3. **工具链做早了会把架构带偏。** 生成器需要 LLM 调用、资源管理、版本控制集成，
-   这些都会给核心引入它不需要的依赖。核心必须保持零渲染、零网络。
-4. **用户的实际痛点不是「写不出剧本」，是「玩法接不进来」。** MVP 应先证明后者。
+1. **Without a runtime, a toolchain has nothing to validate against.** A script
+   generator that cannot prove its output plays correctly produces output nobody
+   should trust. The runtime is the toolchain's **acceptance test**.
+2. **A shared data model is what makes tooling cheap.** `rustory-core` already
+   defines `Story`, `Node`, `Beat` and `Exit`. Any future tool solves against that
+   model instead of inventing its own. `rustory check` in this repository is
+   already an instance of such a tool.
+3. **Building tooling early distorts the architecture.** Generators need LLM
+   calls, asset management and version-control integration — dependencies the core
+   does not need. The core must stay at zero rendering and zero network.
+4. **The real pain is not "I cannot write a script", it is "I cannot plug gameplay
+   in".** The MVP should prove the latter first.
 
-## 后果
+## Consequences
 
-**得到的**
+**Gained**
 
-- MVP 边界清晰：读一份 RON，播放，结束。
-- 核心保持零外部服务依赖，可在无网络环境测试。
-- 工具可以后加，且天然复用同一模型。
+- A crisp MVP boundary: read a RON file, play it, stop.
+- The core keeps zero external service dependencies and tests without a network.
+- Tools can be added later and naturally reuse the same model.
 
-**付出的**
+**Paid**
 
-- 创作者暂时要手写 RON。语法比自然语言啰嗦（`Some(...)`、`End()`）。
-- 没有可视化预览，只能靠 `shot` 截图和 `play` 试玩。
+- Authors have to write RON by hand for now. The syntax is more verbose than
+  prose (`Some(...)`, `End()`).
+- No visual preview; inspecting a scene means `shot` and `play`.
 
-**留给未来的接口**
+**The interface left open for later**
 
-`rustory-script` 是唯一的格式入口。将来若加 DSL 或 LLM 生成流程，
-它们都编译到 `rustory_core::Story`，而不是改动核心。
-这条约束让「工具链」永远是可插拔的外围，不是第二套引擎。
+`rustory-script` is the only entry point for the format. If a DSL or an
+LLM-driven generation flow is added later, it compiles **to** `rustory_core::Story`
+rather than changing the core. That constraint keeps any toolchain a pluggable
+satellite instead of a second engine.
 
-## 验证
+## Verification
 
-`rustory check` 已实现，输出节点数、beat 数、选择点、玩法接管点，
-并检查脚本引用的玩法系统是否已注册。它证明「工具链消费同一模型」这条路是通的。
+`rustory check` exists. It reports node count, beat count, choice points and
+gameplay handovers, and warns when a script references a gameplay system that is
+not registered. It demonstrates that a tool can consume the same model.

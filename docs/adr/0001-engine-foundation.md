@@ -1,96 +1,119 @@
-# ADR 0001 — 引擎地基：自研核心，借用平台层
+# ADR 0001 — Engine foundation: core in-house, platform layer borrowed
 
-- **状态**：已采纳（Accepted），**取代**原「基于 Bevy ECS」的决定
-- **日期**：2026-10-26
-- **决定者**：用户（当场推翻 HANDOFF §5 原约束），本文件为记录
+- **Status**: Accepted. **Supersedes** the original "build on Bevy ECS" decision.
+- **Date**: 2026-10-26
+- **Decided by**: the project owner, who reversed the original constraint while
+  the scaffold was being built. This file is the record.
 
 ---
 
-## 背景
+## Context
 
-项目交接简报（HANDOFF §4.1 / §5）原本把「主路径：基于 Bevy ECS」列为**已确定约束**，
-理由写得也合理：ECS 的「数据与行为分离」天然对应「玩法 = 独立 System」，事件总线
-支持跨系统解耦，且能省掉一大块渲染基础设施。
+The original project brief listed "primary path: based on Bevy ECS" as a **settled
+constraint**, and the reasoning was not unreasonable: ECS separates data from
+behaviour, which maps onto "gameplay = an independent System"; an event bus
+decouples systems; and it removes a large chunk of rendering infrastructure from
+the workload.
 
-在脚手架落地当天（2026-10-26），用户提出反对：
+On the day the scaffold landed (2026-10-26), the owner objected:
 
-> 我其实不太想用别的引擎，我都手搓引擎了，不用行不行
+> I don't really want to use another engine. I'm already hand-writing an engine —
+> can we not?
 
-这不是随口一句偏好。它直接指向项目的立项目标：RuStory 要解决的是「引擎无法干净地
-组合异构玩法」，而**卖点就是边界由自己定义**。
+That was not an idle preference. It points straight at the project's premise:
+RuStory exists because engines cannot cleanly compose heterogeneous gameplay, and
+**the selling point is that the boundaries are defined here.**
 
-## 问题
+## Question
 
-在 Bevy 之上构建，能否实现「叙事为经、玩法为纬」且边界可验证？
+Can "narrative is the warp, gameplay is the weft" with verifiable boundaries be
+achieved on top of Bevy?
 
-## 选项
+## Options
 
-### A. 基于 Bevy ECS（原方案）
+### A. Build on Bevy ECS (the original plan)
 
-- 省掉渲染、窗口、资源管理、调度器。
-- 核心状态必须长在 `Entity` / `World` / `SystemParam` 上。
+- Saves the renderer, windowing, resource management and scheduler.
+- Forces core state onto `Entity` / `World` / `SystemParam`.
 
-### B. 核心自研，借用平台层（现方案）
+### B. Build the core in-house, borrow the platform layer (chosen)
 
-- 世界与组件存储、System 注册与调度、叙事状态机、剧本格式、玩法契约、存档全部自研。
-- 只借用 `winit`（窗口/输入）、`wgpu`（GPU 后端）、`glyphon`+`cosmic-text`+`swash`
-  （文本排版与字形光栅化）。
+- World and component storage, system registration and scheduling, the narrative
+  state machine, the story format, the gameplay contract and saving are all ours.
+- Borrow only `winit` (window and input), `wgpu` (GPU backend), and
+  `glyphon` + `cosmic-text` + `swash` (text shaping and glyph rasterisation).
 
-### C. 自研全部，包括窗口与字体
+### C. Build everything, including windowing and text
 
-- 不采用。手写窗口抽象与字体排版等于重造操作系统抽象，与「架构可组合」零关系。
+- Rejected. Hand-writing a window abstraction and a text shaper means rebuilding
+  operating-system abstractions, which has nothing to do with composable
+  architecture.
 
-## 决策
+## Decision
 
-**采用 B。**
+**Adopt B.**
 
-## 理由
+## Reasoning
 
-1. **边界的主导权。** Bevy 的调度模型就是它的 `Entity`/`World`/`System` 三件套。
-   一旦核心状态长在那上面，「边界由我定义」就变成了「边界由 Bevy 定义」——
-   与项目要解决的问题正好相反。我们要证明的是自己能定义契约，不是能配置别人的框架。
-2. **领域不匹配。** VN 需要的是背景、立绘、文字、点击。Bevy 的 3D、物理、场景图、
-   PBR 全部用不上，却会进入依赖树与心智负担。
-3. **存档与回滚（HANDOFF §4.3 第 5 问）。** 在 ECS 上做快照要处理 Entity 重映射；
-   自研世界里状态形状是自己写的 `struct`/`enum`，`serde` 直接序列化即可。
-   **手搓在这一项上是净胜，不是妥协。**
-4. **版本稳定性。** Bevy 处在快速演化期，破坏性 API 变更频繁。项目要求「稳」与
-   「可读性优先」，跟随上游重构会持续侵蚀这两点。
-5. **先例支持。** 参考项目里 Raven、Sabi 用 Bevy，Ayaka、MOYU 用「Rust 核心 + 上层 UI」，
-   Amble 用数据驱动 + 自研编译器。可见 Bevy 不是这类引擎的必要条件。
+1. **Ownership of the boundary.** Bevy's scheduling model *is* its
+   `Entity`/`World`/`System` trio. The moment core state lives on those, "the
+   boundaries are mine" becomes "the boundaries are Bevy's" — the exact opposite
+   of what this project is trying to prove. The claim to demonstrate is that we
+   can define a contract, not that we can configure someone else's framework.
+2. **Domain mismatch.** A visual novel needs backgrounds, sprites, text and
+   clicks. Bevy's 3D, physics, scene graph and PBR go unused but still enter the
+   dependency tree and the mental load.
+3. **Saves and rollback.** Snapshotting on ECS requires handling entity
+   remapping. In a world we wrote, the state shape is our own `struct`/`enum`, so
+   `serde` serialises it directly. **Hand-writing is a net win here, not a
+   compromise.**
+4. **Version stability.** Bevy is evolving quickly with frequent breaking API
+   changes. This project requires stability and readability first; following
+   upstream refactors erodes both continuously.
+5. **Precedent supports it.** Among reference projects, Raven and Sabi use Bevy;
+   Ayaka and MOYU use "Rust core + upper-layer UI"; Amble uses data-driven design
+   with a purpose-built compiler. Bevy is evidently not a prerequisite for this
+   class of engine.
 
-## 后果
+## Consequences
 
-**得到的**
+**Gained**
 
-- 契约、调度、状态形状全部由项目定义，可以在编译期收紧。
-- 存档 = 序列化自有类型，不需要 ECS 适配层。
-- 依赖树显著变小，构建更快，行为更可预测。
-- 核心可以做到零渲染依赖，纯内存单测。
+- Contracts, scheduling and state shape are defined here and can be tightened at
+  compile time.
+- Saving means serialising our own types; no ECS adapter layer.
+- A much smaller dependency tree, faster builds, more predictable behaviour.
+- The core ends up with zero rendering dependencies, so it unit-tests in memory.
 
-**付出的**
+**Paid**
 
-- 窗口/输入循环、渲染管线、文本排版要自己接线（不是自己实现算法，是接线）。
-- 出第一个可见画面比 Bevy 慢，估计一到两天。
-- 文本排版是唯一真正的坑：CJK 断行、字体 fallback、逐字显示必须按 grapheme cluster 切分。
-  **这部分明确不自研**，用 `cosmic-text` / `swash`。
-- 未来若要 3D 或复杂粒子，需要自己补，不能白拿。
+- The window/input loop, the render pipeline and text layout must be wired up by
+  hand — wiring, not reimplementing algorithms.
+- The first visible frame arrives later than it would with Bevy. Estimated at one
+  to two days.
+- Text layout is the one genuine hazard: CJK line breaking, font fallback, and a
+  typewriter effect that must split on grapheme clusters. **This part is
+  explicitly not hand-written**; it uses `cosmic-text` / `swash`.
+- 3D or complex particles later would have to be built rather than borrowed.
 
-**风险与缓解**
+**Risks and mitigations**
 
-- 风险：造轮子无底洞。缓解：分界线写进 `AGENTS.md` §3，平台层只许借用。
-- 风险：`wgpu` 与 `glyphon` 版本锁死（`glyphon 0.12` 要求 `wgpu ^30.0.0`）。
-  缓解：两者都声明在 workspace 顶层，升级必须同步。
-- 风险：后续 agent 按旧 HANDOFF 走回 Bevy。缓解：`HANDOFF.md` 已同步更新，
-  本 ADR 在 `AGENTS.md` 铁律第 1 条被引用。
+- Risk: reinventing wheels without end. Mitigation: the dividing line is written
+  into `AGENTS.md` §3 — the platform layer is borrowed, never rebuilt.
+- Risk: `wgpu` and `glyphon` are version-locked (`glyphon 0.12` requires
+  `wgpu ^30.0.0`). Mitigation: both are declared at workspace level, so upgrading
+  one forces the other into view.
+- Risk: a later contributor restores Bevy by following the old brief. Mitigation:
+  this ADR is cited from rule 1 of `AGENTS.md`.
 
-## 验证
+## Verification
 
-本次决策落地后已验证：
+Verified after the decision landed:
 
-- `cargo build` 通过（wgpu 30 + glyphon 0.12 + winit 0.30 组合可编译）。
-- `cargo run -p rustory` 输出真实 GPU 适配器与系统字体数量：
-  `Intel(R) RaptorLake-S Mobile Graphics Controller [Intel Corporation / Vulkan]`，
-  `436 system fonts discovered`。
+- `cargo build` succeeds (wgpu 30 + glyphon 0.12 + winit 0.30 compile together).
+- `cargo run -p rustory` reports a real GPU adapter and font count:
+  `Intel(R) RaptorLake-S Mobile Graphics Controller [Intel Corporation / Vulkan]`,
+  `436 system fonts discovered`.
 
-即：选定的平台层在本机确实可用，不是纸面方案。
+In other words: the chosen platform layer actually works on this machine. It is
+not a paper design.

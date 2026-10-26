@@ -1,22 +1,24 @@
-# ADR 0003 — 玩法接入：trait + 注册表 + 不透明配置
+# ADR 0003 — Gameplay integration: trait, registry, opaque config
 
-- **状态**：已采纳并已实现
-- **日期**：2026-10-26
-- **对应待决问题**：HANDOFF §4.3 第 2 问
+- **Status**: Accepted, implemented
+- **Date**: 2026-10-26
+- **Open question**: what shape should the gameplay integration API take?
 
 ---
 
-## 背景
+## Context
 
-「加新玩法是加一根纬线」是项目的第一句话。这句话要么是真的，要么是标语。
-区别在于：**加一个玩法系统时，需要改哪些文件？**
+"Adding gameplay is adding a thread" is the first sentence of this project. That
+sentence is either true or it is a slogan. The difference comes down to one
+question: **when you add a gameplay system, which files change?**
 
-如果答案是「核心的 enum 加一个 variant」，那标语就是假的——因为每加一个玩法
-都在改核心，核心迟早变成所有玩法的杂物间。
+If the answer is "add a variant to the core enum", the slogan is false — because
+every new gameplay system edits the core, and the core eventually becomes a
+cupboard where every gameplay system stores its junk.
 
-## 选项
+## Options
 
-### A. 核心 enum 列出所有玩法
+### A. The core enum lists every gameplay system
 
 ```rust
 pub enum GameplaySpec {
@@ -25,16 +27,17 @@ pub enum GameplaySpec {
 }
 ```
 
-- 优点：编译期完全类型安全。
-- 缺点：**每加一个玩法都要改核心**，且核心必须依赖所有玩法的配置类型。
-  直接违背项目目标。
+- Good: fully type-safe at compile time.
+- Bad: **every new system edits the core**, and the core must depend on every
+  system's config type. This directly contradicts the project's goal.
 
-### B. 完全动态：`HashMap<String, Box<dyn Any>>`
+### B. Fully dynamic: `HashMap<String, Box<dyn Any>>`
 
-- 优点：核心不知道任何玩法。
-- 缺点：配置形状靠运行时碰运气，正是 HANDOFF §1 点名的结构性问题。
+- Good: the core knows nothing about any system.
+- Bad: config shape is a runtime gamble — the exact structural defect this
+  project was founded to remove.
 
-### C. trait 对象注册表 + 不透明配置切片
+### C. Trait-object registry with an opaque config
 
 ```rust
 pub trait GameplaySystem {
@@ -46,53 +49,65 @@ pub trait GameplaySystem {
 }
 ```
 
-核心只认三件事：系统 id、一段它**不解析**的配置、一个**它不解释**的结果键。
-出口由剧本的 `outcomes` 表决定。
+The core recognises three things only: a system id, a config it **never parses**,
+and an outcome key it **never interprets**. Where each outcome leads is decided by
+the script's `outcomes` table.
 
-## 决策
+## Decision
 
-**采用 C。**
+**Adopt C.**
 
-## 理由
+## Reasoning
 
-1. **类型安全被下推到玩法的边界之内。** 核心侧是弱类型（`ron::Value`），
-   但每个玩法在 `begin` 里立刻反序列化成自己的强类型配置，并且**校验失败就不接管**。
-   类型安全的损失被限制在一个方法里，而不是扩散到整个核心。
-2. **出口语义属于剧本，不属于代码。** `correct` 该跳到哪，是这一场戏的事。
-   同一个系统在不同场景可以有完全不同的后果，不需要改代码。
-3. **类型擦除只有一处，宽度只有四个方法。** 这不是「动态形状拼凑」——
-   被擦除的表面是可枚举的、有文档的、被测试覆盖的。
-4. **加法式扩展可被机械验证。** 见下方验证一节。
+1. **Type safety is pushed inside each system's boundary.** The core side is weakly
+   typed (`ron::Value`), but each system deserialises into its own strong type at
+   the top of `begin` and **refuses the handover if validation fails**. The loss of
+   type safety is confined to one method rather than spread across the core.
+2. **Outcome meaning belongs to the script, not the code.** Where `correct` leads
+   is a property of that scene. The same system can have entirely different
+   consequences in different scenes with no code change.
+3. **There is exactly one erased seam, four methods wide.** This is not
+   "dynamically shaped improvisation": the erased surface is enumerable,
+   documented and covered by tests.
+4. **Additive extension can be verified mechanically.** See the verification
+   section.
 
-## 后果
+## Consequences
 
-**得到的**
+**Gained**
 
-- 新增玩法 = 新建一个 crate + 注册一行。核心零改动。
-- 玩法可以独立测试：构造 `GameplayContext` 就能跑，不需要故事、窗口或 GPU。
-- 玩法之间互不感知，顺序由剧本决定。
+- A new gameplay system is a new crate plus one registration line. Zero core
+  changes.
+- Systems test independently: construct a `GameplayContext` and step it. No story,
+  no window, no GPU.
+- Systems are mutually unaware; ordering is the script's business.
 
-**付出的**
+**Paid**
 
-- 配置错误在**运行到该节点时**才暴露（`begin` 失败），不是加载时。
-  缓解：`rustory check` 会列出脚本调用的系统是否已注册；将来可加「试运行所有
-  `begin`」的预检。
-- `ron::Value` 泄漏进了核心的公开 API。接受：它是数据格式类型，不是玩法类型。
-- 注册表是 `BTreeMap<SystemId, Box<dyn GameplaySystem>>`，
-  同一个 id 只能有一个实例。若将来需要并行多个实例，才引入「系统实例池」。
+- A bad config surfaces **when playback reaches that node** (`begin` fails), not at
+  load time. Mitigation: `rustory check` warns when a script names a system that is
+  not registered; a pre-flight that dry-runs every `begin` could be added later.
+- `ron::Value` leaks into the core's public API. Accepted: it is a data-format
+  type, not a gameplay type.
+- The registry is a `BTreeMap<SystemId, Box<dyn GameplaySystem>>`, so one id means
+  one instance. A pool of instances would only be introduced if parallel copies
+  were ever needed.
 
-**明确不做的**
+**Explicitly not done**
 
-- 不提供 `&mut World` 之类的万能后门。玩法只能拿到 `GameplayContext`
-  （时间、输入、`Stats`）。需要更多共享状态就是一次契约扩张，必须走 ADR。
+- No universal back door such as `&mut World`. A system receives `GameplayContext`
+  (time, input, `Stats`) and nothing more. Needing more shared state is a contract
+  expansion, and that requires an ADR.
 
-## 验证
+## Verification
 
-`rustory-gameplay-timer` 是这个决策的实证：
+`rustory-gameplay-timer` is the evidence for this decision:
 
-- 它独立成 crate，只依赖 `rustory-core`。
-- `rustory-core` 里没有任何一处提到 timer、选项或正确性。
-- 接入方式是 `driver.rs` 里的一行 `registry.register(Box::new(TimedChoice::new()))`。
-- 它不感知舞台、故事或渲染——`GameplayContext` 里根本没有这些。
+- It is its own crate, depending only on `rustory-core`.
+- Nothing in `rustory-core` mentions timers, options or correctness.
+- Integration is one line in `driver.rs`:
+  `registry.register(Box::new(TimedChoice::new()))`.
+- It is unaware of the stage, the story and rendering — none of those are in
+  `GameplayContext`.
 
-可以说：**加这根纬线，没有动那块布。**
+Put plainly: **the thread was added without disturbing the cloth.**

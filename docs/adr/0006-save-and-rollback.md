@@ -1,117 +1,135 @@
-# ADR 0006 — 存档与回滚：快照优于事件重放
+# ADR 0006 — Save and rollback: snapshots over event replay
 
-- **状态**：**提案（Proposed）**，尚未实现
-- **日期**：2026-10-26
-- **对应待决问题**：HANDOFF §4.3 第 5 问
+- **Status**: **Proposed**, not implemented
+- **Date**: 2026-10-26
+- **Open question**: how does gameplay state enter a save?
 
 ---
 
-## 背景
+## Context
 
-混合玩法下的存档比纯 VN 难：
+Saving with composable gameplay is harder than in a plain visual novel:
 
-- 存档必须同时包含**叙事位置**（哪个节点、第几个 beat、逐字进度）和
-  **玩法状态**（计时器还剩多久、棋盘长什么样）。
-- 玩家读档后，玩法要能从中断处继续，而不是从头开始。
-- 回滚（VN 常见的「回到上一个选项」）需要**历史快照**，不只是当前快照。
+- A save must carry both **narrative position** (which node, which beat, reveal
+  progress) and **gameplay state** (how long the timer has left, what the board
+  looks like).
+- After loading, a gameplay system has to resume where it stopped, not restart.
+- Rollback — the visual-novel convention of "back to the last choice" — needs
+  **historical snapshots**, not just the current one.
 
-ADR 0001 选择自研核心的一个直接收益就在这里：状态是我们自己的 `struct`，
-不需要处理 ECS 的实体重映射。
+The in-house core from ADR 0001 pays off directly here: the state is our own
+`struct`, so there is no ECS entity remapping to handle.
 
-## 选项
+## Options
 
-### A. 事件重放（event sourcing）
+### A. Event sourcing
 
-记录所有输入事件，读档时从头重放。
+Record every input event and replay from the beginning on load.
 
-- 优点：存档极小；天然支持回滚到任意时刻。
-- 缺点：**重放必须完全确定**。一个 `f32` 累积误差、一个 `HashMap` 迭代顺序、
-  一个未来的随机数，都会让重放结果偏离。玩法越多，确定性越难保证。
-  对混合玩法是陷阱。
+- Good: tiny saves; rollback to any moment comes for free.
+- Bad: **replay must be perfectly deterministic.** One accumulated `f32` error, one
+  `HashMap` iteration order, one future random number and the replay diverges. The
+  more gameplay systems exist, the harder determinism is to hold. For composable
+  gameplay this is a trap.
 
-### B. 状态快照（state snapshot）
+### B. State snapshot
 
-直接序列化 `Narrative` 的完整状态。
+Serialise `Narrative`'s complete state directly.
 
-- 优点：读档即恢复，不依赖任何历史；结果必然一致。
-- 缺点：存档变大；需要为每个玩法定义自己的序列化格式。
+- Good: loading restores everything, with no dependence on history; results are
+  necessarily identical.
+- Bad: larger saves; each gameplay system needs its own serialisation format.
 
-### C. 快照 + 环形历史
+### C. Snapshot plus a ring of history
 
-当前状态走快照；回滚靠保留最近 N 帧的轻量快照。
+Current state as a snapshot; rollback via the last N lightweight snapshots.
 
-## 决策
+## Decision
 
-**采用 C。基础是 B（快照），回滚用环形缓冲的历史快照。**
+**Adopt C: B as the foundation, with a ring buffer of historical snapshots for
+rollback.**
 
-## 理由
+## Reasoning
 
-1. **确定性是稀缺资源，快照不需要它。** 玩法系统里写 `SystemTime::now()`、
-   `HashMap` 遍历、浮点累加都很自然。事件重放要求这些全部被禁止，
-   而且要靠 review 维持——成本远高于多存几 KB。
-2. **玩家感知的不是存档大小，是读档可靠性。** 一个偶发读档错位会毁掉体验，
-   而存档大 20KB 没人会注意。
-3. **回滚只需要几步，不需要全部历史。** VN 的回滚通常到上一个选择点，
-   保留最近 16 个「选择点快照」就够。
+1. **Determinism is a scarce resource, and snapshots do not need it.** Writing
+   `SystemTime::now()`, iterating a `HashMap`, or accumulating floats all come
+   naturally inside a gameplay system. Event replay would forbid all of it and
+   require review to keep it forbidden — far more expensive than a few extra
+   kilobytes.
+2. **Players notice load reliability, not save size.** One intermittent
+   mis-restore ruins the experience; a save that is 20KB larger goes unnoticed.
+3. **Rollback only needs a few steps, not all of history.** Visual novel rollback
+   typically reaches the previous choice, so keeping the last 16 choice-point
+   snapshots is enough.
 
-## 需要序列化的东西
+## What has to be serialised
 
 ```
 SaveState {
-    version: u32,                    // 格式版本，必须
-    story_id: String,                // 剧本标识 + 校验和
+    version: u32,                    // format version, mandatory
+    story_id: String,                // story identity plus checksum
     cursor: NodeId,
     beat_index: usize,
     mode: SavedMode,                 // Revealing/AwaitingAdvance/Choice/Suspended/Finished
-    revealed: usize,                 // 逐字进度，读档后从原处继续
-    stage: { background, actors },   // 舞台
-    stats: BTreeMap<String, i32>,    // 共享数值
-    gameplay: Option<GameplaySave>,  // 见下
+    revealed: usize,                 // reveal progress, so loading resumes mid-line
+    stage: { background, actors },
+    stats: BTreeMap<String, i32>,
+    gameplay: Option<GameplaySave>,  // see below
 }
 ```
 
-### 玩法状态的难点
+### The hard part: gameplay state
 
-`GameplaySystem` 是 trait 对象，核心不知道怎么序列化它。
+`GameplaySystem` is a trait object, and the core has no idea how to serialise it.
 
-两个方案：
+Two approaches:
 
-- **方案 1**：给 trait 加 `fn save(&self) -> ron::Value` / `fn restore(&mut self, v)`。
-  缺点：每个玩法都得实现，且格式自定。
-- **方案 2**：**从叙事侧重建**。存档只记「在哪个节点被暂停 + `Stats`」，
-  读档时重新 `begin` 该玩法，并用 `Stats` 恢复进度。
+- **Approach 1**: add `fn save(&self) -> ron::Value` and
+  `fn restore(&mut self, value)` to the trait. Cost: every system implements it, in
+  a format of its own choosing.
+- **Approach 2**: **rebuild from the narrative side.** The save records only "which
+  node was suspended plus `Stats`"; on load the system is `begin`-ed again and
+  progress is restored from `Stats`.
 
-**倾向方案 2**，因为它是加法式的（新增玩法不必实现存档接口），
-代价是玩法必须能「从 `Stats` 重建」。限时选择就满足：剩余时间可以由
-`Stats` 里的 `elapsed_ms` 推出。
+**Approach 2 is preferred**, because it stays additive — a new system does not have
+to implement a save interface. The price is that a system must be reconstructible
+from `Stats`. The timed choice satisfies this: remaining time follows from an
+`elapsed_ms` counter.
 
-**但这有个硬限制**：玩法状态如果无法压缩进 `Stats`（例如一个随机生成的棋盘），
-方案 2 就不成立。届时必须退到方案 1，并且**在 ADR 里说明为什么该玩法需要
-自己的存档格式**。
+**But there is a hard limit**: if a system's state cannot be compressed into
+`Stats` — a randomly generated board, say — approach 2 does not hold. At that point
+approach 1 becomes mandatory, and **the ADR must explain why that system needs its
+own save format**.
 
-这是一个真实的待决点，不是可以糊过去的地方。
+This is a genuine open question, not something to paper over.
 
-## 后果
+## Consequences
 
-**得到的**
+**Gained**
 
-- 读档可靠性不依赖玩法是否确定。
-- 回滚到上一个选择点是 O(1) 恢复。
+- Load reliability does not depend on whether a system is deterministic.
+- Rolling back to the previous choice is an O(1) restore.
 
-**付出的**
+**Paid**
 
-- 存档体积随玩法和舞台规模增长。
-- 必须维护 `version` 字段与迁移逻辑。**读档时拒绝版本不匹配比猜测更安全。**
-- `story_id` + 校验和是必须的：用旧存档读新剧本会静默错位。
+- Save size grows with the number of systems and the size of the stage.
+- The `version` field and migration logic must be maintained. **Rejecting a version
+  mismatch on load is safer than guessing.**
+- `story_id` plus a checksum is mandatory: loading an old save against a new script
+  would otherwise misalign silently.
 
-**明确不做的**
+**Explicitly out of scope**
 
-- 不做「跨剧本继承状态」。那需要一套显式的迁移语言，远超 MVP。
+- Cross-story state inheritance. That needs an explicit migration language, far
+  beyond the MVP.
 
-## 待决
+## Still undecided
 
-- 存档格式：RON（可读、可 diff、便于调试）vs bincode（小、快）。
-  **倾向 RON**，因为存档需要人工排查的场景比性能场景多得多。
-- 历史快照保留几个：暂定 16，需要实测内存。
-- 是否记录「已看过的文本」用于跳过已读。这是 VN 的标配，但会显著增大存档
-  （要存节点×beat 的位图）。建议单独一个文件，与主存档解耦。
+- Format: RON (readable, diffable, debuggable) vs bincode (small, fast).
+  **RON is preferred**, because saves are investigated by hand far more often than
+  they are performance-critical.
+- How many historical snapshots to keep: 16 tentatively, pending a memory
+  measurement.
+- Whether to record "text already seen" for skip-read mode. It is standard for the
+  genre but significantly enlarges the save (a node-by-beat bitmap). Suggestion:
+  keep it in a separate file, decoupled from the main save.

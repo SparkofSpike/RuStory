@@ -1,31 +1,36 @@
-# 架构决策记录
+# Architecture Decision Records
 
-每个文件记录一个**会影响后续所有代码**的决定：背景、选项、决策、后果。
+Each file records one decision that **constrains every subsequent line of code**:
+the context, the options weighed, the choice, and what it costs.
 
-规矩：改架构不写 ADR，视为没改。ADR 一旦采纳就带状态标签；
-被推翻时不删除，改为 `Superseded by NNNN` 并说明原因。
+The rule: changing the architecture without writing an ADR counts as not having
+changed it. An accepted ADR carries a status label. A reversed decision is never
+deleted — it becomes `Superseded by NNNN` with the reasoning kept for the record.
 
-| 编号 | 标题 | 状态 | 对应待决问题 |
+| No. | Title | Status | Open question it answers |
 |---|---|---|---|
-| [0001](0001-engine-foundation.md) | 引擎地基：自研核心，借用平台层 | 已采纳 | —（取代原「基于 Bevy ECS」） |
-| [0002](0002-runtime-not-toolchain.md) | 引擎是运行时，不是创作工具链 | 已采纳 | HANDOFF §4.3 第 1 问 |
-| [0003](0003-gameplay-integration.md) | 玩法接入：trait + 注册表 + 不透明配置 | 已采纳并实现 | HANDOFF §4.3 第 2 问 |
-| [0004](0004-cross-system-contract.md) | 跨系统契约：事件向外，窄状态在内 | 已采纳并实现 | HANDOFF §4.3 第 3 问 |
-| [0005](0005-wasm-vs-upper-ui.md) | WASM 沙箱 vs 上层 UI：按「谁能改坏什么」划分 | 提案 | HANDOFF §4.3 第 4 问 |
-| [0006](0006-save-and-rollback.md) | 存档与回滚：快照优于事件重放 | 提案 | HANDOFF §4.3 第 5 问 |
+| [0001](0001-engine-foundation.md) | Engine foundation: core in-house, platform layer borrowed | Accepted | — (supersedes the original Bevy ECS plan) |
+| [0002](0002-runtime-not-toolchain.md) | The engine is a runtime, not an authoring toolchain | Accepted | Runtime or toolchain? |
+| [0003](0003-gameplay-integration.md) | Gameplay integration: trait, registry, opaque config | Accepted, implemented | What shape is the gameplay API? |
+| [0004](0004-cross-system-contract.md) | Cross-system contract: events outward, narrow state inward | Accepted, implemented | How do narrative and gameplay share state? |
+| [0005](0005-wasm-vs-upper-ui.md) | WASM sandbox vs upper-layer UI: split by what each can break | Proposed | Which gameplay goes where? |
+| [0006](0006-save-and-rollback.md) | Save and rollback: snapshots over event replay | Proposed | How does gameplay state enter a save? |
 
-## 状态含义
+## Status meanings
 
-- **提案（Proposed）**：方向已定，未实现。可以改，但要更新文档。
-- **已采纳（Accepted）**：方向已定，实现可有可无。
-- **已采纳并实现**：代码里能查到，改动会破坏现有测试。
-- **被取代（Superseded）**：不再有效，保留以便追溯。
+- **Proposed**: direction settled, not built. Open to revision, but the document
+  must be updated with it.
+- **Accepted**: direction settled; implementation may or may not exist.
+- **Accepted, implemented**: the code enforces it, and changing it breaks tests.
+- **Superseded**: no longer in force, kept so the trail stays readable.
 
-## 下一步该写哪些
+## What still needs an ADR
 
-以下问题目前没有 ADR，一旦要动就需要补：
+None of these are decided. Writing one is the first step before changing code.
 
-- 音频：什么时候接、用 `rodio` 还是 `kira`、音频状态是否参与存档。
-- 玩法读叙事状态：是否需要只读快照（见 ADR 0004 的「已知缺口」）。
-- 剧本格式演进：加 DSL 时如何处理版本迁移。
-- 多语言：文本外置与字体 fallback 策略。
+- **Audio**: when to wire it in, `rodio` or `kira`, and whether audio state
+  belongs in a save.
+- **Gameplay reading narrative state**: does it need a read-only snapshot? See
+  the open gap recorded in ADR 0004.
+- **Format evolution**: how a script migrates when the story format gains a DSL.
+- **Localisation**: externalised text and the font fallback strategy.

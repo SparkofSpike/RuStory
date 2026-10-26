@@ -1,85 +1,101 @@
-# ADR 0005 — WASM 沙箱 vs 上层 UI：一条按「谁能改坏什么」划分的界线
+# ADR 0005 — WASM sandbox vs upper-layer UI: split by what each can break
 
-- **状态**：**提案（Proposed）**，尚未实现
-- **日期**：2026-10-26
-- **对应待决问题**：HANDOFF §4.3 第 4 问
+- **Status**: **Proposed**, not implemented
+- **Date**: 2026-10-26
+- **Open question**: which gameplay goes to WASM, which to an upper-layer UI?
 
 ---
 
-## 背景
+## Context
 
-HANDOFF §2 写了「隔离优先：高风险或高迭代速度的玩法，优先考虑沙箱/独立层
-（WASM 插件或上层 JS/React）」。但没说**哪些算高风险**。
+The original constraint said: "isolation first — high-risk or fast-iterating
+gameplay should preferentially live in a sandbox or a separate layer (WASM plugins
+or an upper JS/React layer)". It never defined **which gameplay counts as
+high-risk**.
 
-同时 ADR 0001 已经决定「引擎核心自研，不套第三方引擎」，这不排斥 WASM——
-WASM 是运行在核心之上的模块，不是替代核心的框架。
+Separately, ADR 0001 decided the engine core is written in-house rather than on a
+third-party engine. That does not rule out WASM: a WASM plugin is a module running
+on top of the core, not a framework replacing it.
 
-## 判断维度
+## The axes that matter
 
-不是按「玩法复不复杂」分，而是按两个问题：
+Not "how complex is the gameplay" but two questions:
 
-1. **谁能改坏什么？** 这个玩法需要的权限，会不会伤到核心状态或宿主系统？
-2. **迭代速度要求多高？** 需要热更新、非程序员可改、还是编译一次就行？
+1. **What can it break?** Does the access this system needs threaten core state or
+   the host system?
+2. **How fast must it iterate?** Hot reload, editable by a non-programmer, or
+   compile once and be done?
 
-## 决策树
+## Decision tree
 
 ```
-新玩法是否需要在运行时加载（用户装 mod / 热更新 / 不能重新编译引擎）？
-├── 是 ──▶ 该玩法是否需要触达文件系统、网络或原生 API？
-│          ├── 是 ──▶ 拒绝。沙箱的意义就是不给这些。降级为编译期 crate。
-│          └── 否 ──▶ 【WASM 插件】
-└── 否 ──▶ 该玩法是否是重度 UI（Live2D 级动画、复杂表单、富文本编辑）？
-           ├── 是 ──▶ 【上层 UI】（Tauri + Web 前端）
-           └── 否 ──▶ 该玩法的状态能否用 Stats + 自有意 datatype 表达？
-                      ├── 能 ──▶ 【编译期 crate】（即 ADR 0003 的形式）
-                      └── 不能 ──▶ 先改契约并写 ADR，再决定归属。
-                                   不允许直接开洞。
+Does the new gameplay need to load at runtime (user-installed mods, hot reload,
+no engine rebuild)?
+├── Yes ──▶ Does it need filesystem, network or native API access?
+│           ├── Yes ──▶ Refuse. Denying those is the whole point of a sandbox.
+│           │            Demote it to a compile-time crate.
+│           └── No  ──▶ [WASM plugin]
+└── No  ──▶ Is it heavily UI-driven (Live2D-grade animation, complex forms,
+            rich text editing)?
+            ├── Yes ──▶ [Upper-layer UI] (Tauri + web front end)
+            └── No  ──▶ Can its state be expressed with Stats plus its own data
+                        types?
+                        ├── Yes ──▶ [Compile-time crate] (the ADR 0003 form)
+                        └── No  ──▶ Change the contract and write an ADR first.
+                                     Punching a hole is not an option.
 ```
 
-## 三个档位的定位
+## The three tiers
 
-### 编译期 crate（当前唯一已实现的档位）
+### Compile-time crate (the only tier implemented today)
 
-- 例：`rustory-gameplay-timer`
-- 受信、随引擎编译、零运行时开销、可用 Rust 全部能力。
-- **绝大多数玩法应该留在这里。** 沙箱不是荣誉勋章，是成本。
+- Example: `rustory-gameplay-timer`.
+- Trusted, compiled with the engine, zero runtime overhead, full access to Rust.
+- **Almost all gameplay should stay here.** A sandbox is a cost, not a badge.
 
-### WASM 插件（提案）
+### WASM plugin (proposed)
 
-- 适用：第三方 mod、需要热重载、创作者自己写玩法。
-- 约束：
-  - 只拿到序列化后的 `GameplayContext`（时间、输入、`Stats` 视图）。
-  - 只能返回 `OutcomeKey`。
-  - 不能碰文件、网络、时钟（时间由宿主传入）。
-  - 有执行步数上限，防止一个死循环卡死宿主。
-- 代价：跨边界序列化开销、调试困难、错误信息被沙箱糊掉。
-- **不建议为 MVP 实现**：在没有真实第三方 mod 需求之前，它只会增加维护面。
+- For third-party mods, hot reload, and creators writing their own gameplay.
+- Constraints:
+  - Receives only a serialised `GameplayContext` (time, input, a `Stats` view).
+  - Can return only an `OutcomeKey`.
+  - No filesystem, network or clock access; time is passed in by the host.
+  - A step limit, so one infinite loop cannot hang the host.
+- Costs: serialisation across the boundary, harder debugging, error messages
+  swallowed by the sandbox.
+- **Not recommended for the MVP.** Without real third-party mod demand it only adds
+  surface area to maintain.
 
-### 上层 UI（提案）
+### Upper-layer UI (proposed)
 
-- 适用：重度视觉/交互，Rust 重写不划算。
-- 与 WASM 的区别：它**不是玩法逻辑**，而是玩法的**呈现层**。
-  逻辑仍应在 Rust 侧，UI 只负责画和收集意图。
-- 边界要求：UI 与核心之间只能走「快照下行 + 意图上行」，
-  和本项目已有的 `Frame` 思路一致。
+- For heavy visuals or interaction where rewriting in Rust does not pay off.
+- The difference from WASM: this is **not gameplay logic**, it is gameplay's
+  **presentation layer**. Logic stays in Rust; the UI draws and collects intents.
+- Boundary: only "snapshot down, intents up" between UI and core — the same shape
+  as the existing `Frame`.
 
-## 为什么现在不做
+## Why not now
 
-1. 没有真实需求。当前只有一个玩法，编译期 crate 完全够用。
-2. 沙箱的收益依赖「不受信代码」这个前提。自己写的玩法是受信的。
-3. 过早引入 WASM 会把 `GameplaySystem` 从 trait 改成跨边界协议，
-   而那会污染 ADR 0003 已经定下来的干净契约。
+1. There is no real need. One gameplay system exists, and a compile-time crate is
+   entirely sufficient.
+2. A sandbox's value depends on the premise of **untrusted code**. Gameplay we
+   write ourselves is trusted.
+3. Introducing WASM early would turn `GameplaySystem` from a trait into a
+   cross-boundary protocol, which would contaminate the clean contract ADR 0003
+   established.
 
-## 触发条件（什么时候该回来做这个 ADR）
+## Triggers to revisit this ADR
 
-满足任一条就重启讨论：
+Restart the discussion when any one of these becomes true:
 
-- 出现「玩家/第三方可以安装的玩法包」需求；
-- 出现「不重新编译引擎就要改玩法」需求；
-- 玩法数量超过 5 个，且其中一个的依赖明显重于其他（说明它该隔离）。
+- There is demand for player- or third-party-installable gameplay packages.
+- There is demand to change gameplay without rebuilding the engine.
+- More than five gameplay systems exist and one has a markedly heavier dependency
+  footprint than the rest, which is a signal that it wants isolation.
 
-## 待决
+## Still undecided
 
-- WASM 运行时选型（wasmtime / wasmer）未调研。
-- 跨边界的数据格式（JSON / RON / bincode）未定。
-- 是否需要给插件提供受限的「读剧本节点」能力，未定。
+- WASM runtime choice (wasmtime vs wasmer) has not been investigated.
+- The cross-boundary data format (JSON / RON / bincode) is not settled.
+- Whether plugins should get a restricted "read a script node" capability is
+  undecided.

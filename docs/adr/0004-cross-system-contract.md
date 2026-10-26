@@ -1,104 +1,118 @@
-# ADR 0004 — 跨系统契约：事件向外，窄状态在内
+# ADR 0004 — Cross-system contract: events outward, narrow state inward
 
-- **状态**：已采纳并已实现
-- **日期**：2026-10-26
-- **对应待决问题**：HANDOFF §4.3 第 3 问
+- **Status**: Accepted, implemented
+- **Date**: 2026-10-26
+- **Open question**: how do narrative and gameplay share state?
 
 ---
 
-## 背景
+## Context
 
-叙事系统与玩法系统必须交换信息，否则「玩法接管叙事」无从谈起。问题是怎么交换。
+The narrative and a gameplay system have to exchange information, or "gameplay
+takes over the narrative" is not implementable at all. The question is how.
 
-HANDOFF §2 的约束是「数据与行为分离，通过事件与共享少量数据组件耦合」，
-但没说清「少量」是多少、事件长什么样、谁可以看谁。
+The original constraint was "separate data from behaviour; couple through events
+and a small amount of shared data". That left three things unspecified: how small
+"small" is, what an event looks like, and who may read what.
 
-## 三个方向的通道
+## The three channels
 
 ```
                  ┌──────────────────┐
-   剧本 outcomes │    Narrative     │  NarrativeEvent ──▶ 渲染 / 日志 / 存档
-                 │  （状态机）       │
+   script        │    Narrative     │  NarrativeEvent ──▶ renderer / log / save
+   outcomes ────▶│  (state machine) │
                  └────────┬─────────┘
                           │ GameplayContext { dt, inputs, &mut Stats }
                           ▼
                  ┌──────────────────┐
-                 │ GameplaySystem   │ ──▶ OutcomeKey（唯一回传通道）
+                 │ GameplaySystem   │ ──▶ OutcomeKey (the only channel back)
                  └──────────────────┘
 ```
 
-### 1. 叙事 → 外部：事件流
+### 1. Narrative → outside: the event stream
 
-`NarrativeEvent` 是只读的、可枚举的、`Clone` 的。渲染器、日志、将来的存档系统
-都只订阅，不反过来改状态。**这个方向是单向的**，这是叙事状态机保持可推理的原因。
+`NarrativeEvent` is read-only, enumerable and `Clone`. The renderer, logging and a
+future save system subscribe; none of them mutate state in return. **This direction
+is one-way**, and that is why the narrative state machine stays reason-able.
 
-### 2. 叙事 → 玩法：`GameplayContext`
+### 2. Narrative → gameplay: `GameplayContext`
 
-玩法能拿到的全部东西：
+Everything a system can reach:
 
 ```rust
 pub struct GameplayContext<'a> {
-    pub dt_ms: u32,                  // 这一帧过了多久
-    pub inputs: &'a [GameplayInput], // 已翻译的输入意图
-    pub stats: &'a mut Stats,        // 唯一的共享可写状态
+    pub dt_ms: u32,                  // how long this frame took
+    pub inputs: &'a [GameplayInput], // input intents, already translated
+    pub stats: &'a mut Stats,        // the only shared writable state
 }
 ```
 
-**玩法看不到**：舞台（背景、立绘）、故事图、渲染器、窗口。
-不是靠约定，是靠类型——这些东西根本不在结构体里。
+**Not reachable**: the stage (background, sprites), the story graph, the renderer,
+the window. Not by convention — by type. None of those exist in the struct.
 
-### 3. 玩法 → 叙事：`OutcomeKey`
+### 3. Gameplay → narrative: `OutcomeKey`
 
-只有一条回传通道，而且只是一个字符串键。核心拿它去查剧本的 `outcomes` 表。
+One channel back, and it is a string key. The core looks it up in the script's
+`outcomes` table.
 
-## `Stats` 的形状
+## The shape of `Stats`
 
 ```rust
 pub struct Stats { values: BTreeMap<String, i32> }
 ```
 
-- 键是字符串：不同故事、不同玩法需要不同的属性名（好感度、体力、怀疑值）。
-- 值是 `i32`：固定类型。
-- **不是** `BTreeMap<String, Box<dyn Any>>`。这是本项目与「动态形状拼凑」的分界线。
-  属性名可以自由，值的语义必须统一。
+- Keys are strings: different stories and different systems need different
+  attribute names (affection, stamina, suspicion).
+- Values are `i32`: a fixed type.
+- **Not** `BTreeMap<String, Box<dyn Any>>`. This is the line between this project
+  and "dynamically shaped improvisation". Attribute names may be free; value
+  semantics must be uniform.
 
-## 决策
+## Decision
 
-采用上述三段式：**事件向外、窄上下文向内、单一结果键回传。**
+Adopt the three-part arrangement above: **events outward, a narrow context inward,
+a single key back.**
 
-## 理由
+## Reasoning
 
-1. **可推理。** 叙事状态的每一次变化都只可能来自三个地方：`tick`、`advance`/`choose`、
-   以及 `resolve_gameplay`。没有任何玩法能在背后改叙事状态。
-2. **可测试。** `GameplayContext` 的全部输入都是普通值，玩法测试不需要故事。
-   `rustory-gameplay-timer` 的 9 个测试全是纯内存的。
-3. **扩张是显式的。** 如果某个玩法真需要读舞台（比如「按立绘位置判断点击」），
-   那不是加一个字段就能解决的——必须先写 ADR 说明为什么这不算越界。
-   摩擦是有意的。
+1. **Reason-able.** Every change to narrative state can only originate in three
+   places: `tick`, `advance`/`choose`, and `resolve_gameplay`. No gameplay system
+   can mutate narrative state behind the core's back.
+2. **Testable.** Everything in `GameplayContext` is a plain value, so testing a
+   system needs no story. All nine tests in `rustory-gameplay-timer` run purely in
+   memory.
+3. **Expansion is explicit.** If a system genuinely needs to read the stage — "judge
+   the click by sprite position", say — that cannot be solved by adding a field.
+   It requires an ADR arguing why that is not a boundary violation. The friction is
+   intentional.
 
-## 后果
+## Consequences
 
-**得到的**
+**Gained**
 
-- 玩法与呈现完全解耦。同一个「限时选择」既能在窗口里跑，也能在 headless
-  截图流程里跑，还能在测试里跑。
-- 事件流让渲染器无状态：每帧从 `Narrative` 重新读一遍即可，不必维护增量镜像。
+- Gameplay is fully decoupled from presentation. The same timed choice runs in a
+  window, in a headless screenshot pipeline, and in a test.
+- The event stream lets the renderer stay stateless: re-read `Narrative` each frame
+  instead of maintaining an incremental mirror.
 
-**付出的**
+**Paid**
 
-- 玩法间共享状态必须走 `Stats` 的字符串键，失去编译期拼写检查。
-  缓解：键名集中定义（`timed_choice.attempts`、`timed_choice.correct` 这类
-  带命名空间的常量）。
-- 事件队列需要调用方主动 `take_events()`。**目前没有任何生产代码调用它**——
-  渲染器每帧从 `Narrative` 重读状态，不需要事件；窗口模式和 CLI 也都没订阅。
-  因此队列自带上限（`MAX_PENDING_EVENTS = 256`，超出丢最旧），
-  否则长时间运行会按 beat 数泄漏内存。
-  将来出现真实消费者（音效、成就、日志）时，它应当每帧 drain，
-  届时上限不会触发。
+- State shared between systems must go through `Stats` string keys, losing
+  compile-time spelling checks. Mitigation: define key names in one place, with
+  namespaced constants such as `timed_choice.attempts` and
+  `timed_choice.correct`.
+- The event queue relies on the caller invoking `take_events()`. **No production
+  code calls it today** — the renderer re-reads state each frame and has no use for
+  events, and neither the CLI nor the windowed player subscribes. The queue is
+  therefore self-bounded (`MAX_PENDING_EVENTS = 256`, oldest dropped first);
+  without that, a long session would leak memory in proportion to beats played.
+  If a real consumer appears (sound cues, achievements, a log), it should drain
+  every frame, and the bound will never be reached.
 
-**已知缺口（记入待决问题）**
+**Known gap (recorded as an open question)**
 
-- 目前没有「玩法读叙事状态」的通道。比如「辩论战斗」想知道当前是第几轮对话，
-  只能靠配置传参。如果要支持，应新增一个**只读**的
-  `NarrativeSnapshot`（节点 id + 已播 beat 数 + `Stats`），而不是开放整个
-  `Narrative`。这个改动需要 ADR。
+- There is no channel for gameplay to **read** narrative state. A "debate battle"
+  that wants to know which dialogue round it is in can only be told through config.
+  Supporting this should mean adding a **read-only** `NarrativeSnapshot` (node id
+  plus beats played plus `Stats`) rather than exposing `Narrative` itself. That
+  change needs an ADR.
