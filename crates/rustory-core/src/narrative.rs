@@ -130,11 +130,6 @@ impl Narrative {
     }
 
     #[must_use]
-    pub fn stats_mut(&mut self) -> &mut Stats {
-        &mut self.stats
-    }
-
-    #[must_use]
     pub fn mode(&self) -> &Mode {
         &self.mode
     }

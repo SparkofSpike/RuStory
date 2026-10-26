@@ -45,12 +45,14 @@ pub enum NarrativeEvent {
 ///
 /// Renderers use this to decide whether to rebuild text geometry or just advance
 /// a reveal count. Reporting it costs nothing and saves a per-frame diff.
+///
+/// This deliberately says nothing about the cursor: [`crate::Narrative::tick`]
+/// only advances a reveal, and moving between beats or nodes is
+/// [`crate::Narrative::advance`]'s job. A field for that would always be false.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TickReport {
     /// Number of grapheme clusters revealed in the active line after this tick.
     pub revealed: usize,
     /// Whether the active line finished during this tick.
     pub line_completed: bool,
-    /// Whether the cursor moved to a new beat or node during this tick.
-    pub advanced: bool,
 }
