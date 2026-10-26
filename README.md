@@ -123,10 +123,16 @@ $ cargo run -p rustory -- gen-assets assets       # placeholder art
 $ cargo run -p rustory -- check stories/demo.ron  # parse + validate
 $ cargo run -p rustory -- play stories/demo.ron   # play it
 $ cargo run -p rustory -- shot stories/demo.ron --out frame.png --advance 4
+$ cargo run -p rustory -- shot stories/demo.ron --at honest:2 --out frame.png
 
 $ cargo run -p rustory -- save stories/demo.ron --advance 6 --out save.ron
 $ cargo run -p rustory -- resume stories/demo.ron save.ron --finish
 ```
+
+`--advance` counts clicks, which is what a player does; `--at` names a position, which
+is what a caller who knows what it wants does. They are not the same thing: one click can
+finish a revealing line without moving on, and inside a gameplay system a click plays the
+whole interaction.
 
 The demo runs without a window too:
 

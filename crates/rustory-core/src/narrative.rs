@@ -308,6 +308,17 @@ impl Narrative {
         self.current_node().beats.get(self.beat_index)
     }
 
+    /// Index of the beat being shown inside the current node, zero-based.
+    ///
+    /// Exposed so a tool can ask for a position — "node `prologue`, beat 3" — instead of
+    /// counting interactions. Counting is not the same thing: one click can finish a
+    /// line and only the next one moves on, and inside a gameplay system a click plays
+    /// the whole thing to completion. A frame has a location; this is how you name it.
+    #[must_use]
+    pub fn beat_index(&self) -> usize {
+        self.beat_index
+    }
+
     /// The active line for rendering, or `None` when no line is on screen.
     #[must_use]
     pub fn line(&self) -> Option<LineView<'_>> {

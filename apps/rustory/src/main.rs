@@ -13,7 +13,7 @@ mod scene;
 
 use std::path::{Path, PathBuf};
 
-use rustory_core::Narrative;
+use rustory_core::{Narrative, NodeId};
 use rustory_render::{Renderer, Rgba8Image};
 use rustory_script::ScriptError;
 
@@ -57,6 +57,7 @@ OPTIONS for shot / play / save / resume:
     --assets <dir>     Where sprite and background PNGs live (default: assets)
     --out <file>       Output path for shot (.png) or save (.ron)
     --advance <n>      Clicks to simulate before acting (default: 0)
+    --at <node>[:<beat>]  Stop at a named position instead of counting clicks
     --finish           resume: keep playing to an ending instead of reporting
     --font <family>    Typeface for all text; load files from <assets>/fonts first
                        (no --font means the platform's default sans-serif)
@@ -195,11 +196,71 @@ fn transcript(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Where `--at` points: a node, and optionally a beat inside it.
+///
+/// `prologue` means "arrive at that node", which is the common case; `prologue:3` also
+/// asks for the fourth beat. The beat is a runtime index, not a script index: entering
+/// a node runs its leading non-blocking beats (a background, an actor) before the first
+/// line appears, so `prologue:0` is usually already behind you.
+fn parse_at(value: &str) -> (NodeId, Option<usize>) {
+    if let Some((node, beat)) = value.rsplit_once(':')
+        && let Ok(beat) = beat.parse::<usize>()
+    {
+        return (NodeId::from(node), Some(beat));
+    }
+    (NodeId::from(value), None)
+}
+
+/// Advance until the narrative is showing `target`.
+///
+/// Deliberately not "click n times": a click finishes a revealing line without moving
+/// on, and inside a gameplay system a click plays the whole interaction to completion,
+/// so click counts do not map onto positions.
+fn seek(
+    narrative: &mut Narrative,
+    registry: &mut rustory_core::GameplayRegistry,
+    target: &str,
+) -> Result<(), String> {
+    let (node, beat) = parse_at(target);
+    if !narrative.story().nodes.contains_key(&node) {
+        return Err(format!("no node `{node}` in this story"));
+    }
+
+    const LIMIT: usize = 1000;
+    for _ in 0..LIMIT {
+        if narrative.cursor() == &node {
+            match beat {
+                // Arriving is the whole request when no beat was named.
+                None => return Ok(()),
+                Some(beat) if narrative.beat_index() == beat => return Ok(()),
+                // Forwards only: rewinding would need a second story position, and a
+                // tool that silently restarts is worse than one that says no.
+                Some(beat) if narrative.beat_index() > beat => {
+                    return Err(format!(
+                        "`{node}` is already past beat {beat} (showing {}); `--at` moves forward only",
+                        narrative.beat_index()
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+        if matches!(narrative.mode(), rustory_core::Mode::Finished { .. }) {
+            return Err(format!("the story ended before reaching `{target}`"));
+        }
+        driver::click(narrative, registry)?;
+    }
+    Err(format!(
+        "`{target}` was not reached in {LIMIT} interactions"
+    ))
+}
+
 struct ShotOptions {
     story: PathBuf,
     assets: PathBuf,
     out: PathBuf,
     advance: usize,
+    /// Stop here instead of counting clicks: `node` or `node:beat`.
+    at: Option<String>,
     font: Option<String>,
 }
 
@@ -210,6 +271,7 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
         assets: PathBuf::from("assets"),
         out: PathBuf::from("shot.png"),
         advance: 0,
+        at: None,
         font: None,
     };
 
@@ -230,6 +292,14 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
                 options.advance = value
                     .parse()
                     .map_err(|_| format!("--advance expects a number, got `{value}`"))?;
+            }
+            "--at" => {
+                index += 1;
+                options.at = Some(
+                    args.get(index)
+                        .ok_or("--at needs a node, optionally `node:beat`")?
+                        .clone(),
+                );
             }
             "--font" => {
                 index += 1;
@@ -256,11 +326,18 @@ fn shot(args: &[String]) -> Result<(), String> {
     let mut narrative = Narrative::new(story).map_err(|err| err.to_string())?;
     let mut registry = driver::default_registry();
 
-    for _ in 0..options.advance {
-        if matches!(narrative.mode(), rustory_core::Mode::Finished { .. }) {
-            break;
+    if let Some(target) = &options.at {
+        if options.advance > 0 {
+            return Err("--at and --advance both position the frame; use one".into());
         }
-        driver::click(&mut narrative, &mut registry)?;
+        seek(&mut narrative, &mut registry, target)?;
+    } else {
+        for _ in 0..options.advance {
+            if matches!(narrative.mode(), rustory_core::Mode::Finished { .. }) {
+                break;
+            }
+            driver::click(&mut narrative, &mut registry)?;
+        }
     }
 
     // Capture what the player would actually read: finish revealing the current
@@ -489,4 +566,26 @@ fn edit_cmd(args: &[String]) -> Result<(), String> {
     };
 
     finish(edit_cli::edit(&story_path, &ops, !dry_run, as_json))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bare_node_name_means_arrive_at_the_node() {
+        assert_eq!(parse_at("prologue"), (NodeId::from("prologue"), None));
+    }
+
+    #[test]
+    fn a_colon_names_a_beat_inside_the_node() {
+        assert_eq!(parse_at("prologue:3"), (NodeId::from("prologue"), Some(3)));
+    }
+
+    #[test]
+    fn a_colon_without_a_number_stays_part_of_the_node_name() {
+        // Node ids are chosen by authors, so a colon that is not a beat must not be
+        // quietly eaten: `act:one` is one node, not node `act` beat `one`.
+        assert_eq!(parse_at("act:one"), (NodeId::from("act:one"), None));
+    }
 }
