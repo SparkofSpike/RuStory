@@ -9,3 +9,10 @@ description = "RuStory narrative core: story model, narrative state machine, gam
 [dependencies]
 serde = { workspace = true }
 thiserror = { workspace = true }
+ron = { workspace = true }
+unicode-segmentation = { workspace = true }
+
+[dev-dependencies]
+# ron is part of the public API (GameplaySpec::config), so integration tests
+# need it too in order to build a config value.
+ron = { workspace = true }

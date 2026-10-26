@@ -1,13 +1,11 @@
-//! `rustory` — run a RuStory script, or validate one.
+//! `rustory` — probe the rendering stack.
 
 fn main() {
-    println!("rustory 0.1.0 — scaffold only, no playable slice yet");
-    println!("core:   {}", rustory_core::crate_name());
-    println!("script: {}", rustory_script::crate_name());
+    println!("rustory {}", env!("CARGO_PKG_VERSION"));
 
     match rustory_render::probe_gpu() {
-        Ok(adapter) => println!("gpu:    {adapter}"),
-        Err(err) => println!("gpu:    UNAVAILABLE — {err}"),
+        Ok(adapter) => println!("gpu:  {adapter}"),
+        Err(err) => println!("gpu:  UNAVAILABLE — {err}"),
     }
-    println!("text:   {}", rustory_render::probe_text());
+    println!("text: {}", rustory_render::probe_text());
 }

@@ -1,4 +1,4 @@
-[workspace]
+﻿[workspace]
 resolver = "3"
 members = [
     "crates/rustory-core",
@@ -23,6 +23,7 @@ rustory-render = { path = "crates/rustory-render" }
 serde = { version = "1", features = ["derive"] }
 ron = "0.11"
 thiserror = "2"
+unicode-segmentation = "1"
 
 # Platform layer: borrow existing implementations of OS abstractions, never build
 # them. The engine's own world model, scheduling, state machine, story format and

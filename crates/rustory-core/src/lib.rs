@@ -1,12 +1,83 @@
 //! RuStory narrative core.
 //!
-//! This crate owns the story model and the narrative state machine. It is
-//! intentionally free of Bevy and of any rendering dependency so that it can be
-//! unit-tested without a GPU or a window.
+//! This crate owns the story model, the narrative state machine and the gameplay
+//! contract. It has no rendering dependency and no window dependency, so every
+//! behaviour here is testable in memory — which is also why it is the only crate
+//! with meaningful unit tests.
+//!
+//! # The shape of a story
+//!
+//! ```text
+//! Story ── start ──▶ Node ── beats ──▶ [Say | ShowActor | HideActor | SetBackground]
+//!                     │
+//!                     └── exit ─────▶ [End | Goto | Choose | Gameplay]
+//! ```
+//!
+//! A [`Narrative`] walks that graph. It pauses when a line needs revealing, when
+//! the player must choose, and when a gameplay system takes over.
+//!
+//! # Where gameplay plugs in
+//!
+//! A node can hand control to any registered [`GameplaySystem`]. The core hands
+//! over an opaque config and receives back an [`OutcomeKey`]; the *script* maps
+//! that key to the next node. Adding a gameplay system therefore requires no
+//! change to this crate.
+//!
+//! # Example
+//!
+//! ```
+//! use rustory_core::prelude::*;
+//! use std::collections::BTreeMap;
+//!
+//! let mut nodes = BTreeMap::new();
+//! nodes.insert(NodeId::from("start"), Node {
+//!     beats: vec![
+//!         Beat::SetBackground { image: Some("school.ron".into()) },
+//!         Beat::Say { speaker: None, text: "The bell rings.".into() },
+//!     ],
+//!     exit: Exit::End { ending: None },
+//! });
+//!
+//! let mut narrative = Narrative::new(Story {
+//!     meta: StoryMeta::default(),
+//!     start: NodeId::from("start"),
+//!     nodes,
+//! })?;
+//!
+//! // The background applied immediately; the line is still revealing.
+//! assert_eq!(narrative.stage().background(), Some("school.ron"));
+//! assert!(matches!(narrative.mode(), Mode::Revealing));
+//!
+//! narrative.tick(1000, 0); // 0 = instant
+//! assert!(matches!(narrative.mode(), Mode::AwaitingAdvance));
+//! narrative.advance()?;
+//! assert!(matches!(narrative.mode(), Mode::Finished { .. }));
+//! # Ok::<(), rustory_core::CoreError>(())
+//! ```
 
 #![forbid(unsafe_code)]
 
-/// Placeholder kept only until the first real module lands.
-pub fn crate_name() -> &'static str {
-    "rustory-core"
+mod error;
+mod event;
+mod gameplay;
+mod ids;
+mod narrative;
+mod stage;
+mod story;
+
+pub use error::CoreError;
+pub use event::{NarrativeEvent, TickReport};
+pub use gameplay::{GameplayContext, GameplayInput, GameplayRegistry, GameplaySystem, Stats};
+pub use ids::{ActorId, NodeId, OutcomeKey, SystemId};
+pub use narrative::{LineView, Mode, Narrative};
+pub use stage::{ActorOnStage, Stage};
+pub use story::{Beat, Choice, Exit, GameplaySpec, Node, Slot, Story, StoryMeta};
+
+/// The types almost every caller needs.
+pub mod prelude {
+    pub use crate::{
+        ActorId, Beat, Choice, CoreError, Exit, GameplayContext, GameplayInput, GameplayRegistry,
+        GameplaySpec, GameplaySystem, LineView, Mode, Narrative, NarrativeEvent, Node, NodeId,
+        OutcomeKey, Slot, Stage, Stats, Story, StoryMeta, SystemId, TickReport,
+    };
 }
