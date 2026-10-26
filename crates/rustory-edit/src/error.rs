@@ -26,6 +26,12 @@ pub enum EditError {
     #[error("node `{0}` does not offer choices, so it has no options to edit")]
     NoChoices(NodeId),
 
+    #[error("node `{0}` does not hand over to a gameplay system, so it has no outcomes")]
+    NoGameplay(NodeId),
+
+    #[error("node `{node}` has no mapping for outcome `{outcome}`")]
+    NoSuchOutcome { node: NodeId, outcome: String },
+
     #[error("choice index {index} is out of range for node `{node}` ({count} options)")]
     ChoiceOutOfRange {
         node: NodeId,

@@ -15,16 +15,45 @@ use crate::error::EditError;
 pub struct Document {
     story: Story,
     path: PathBuf,
+    /// Whether this document has ever been written.
+    ///
+    /// A new story has no file yet, and `save` must not invent one: writing to a
+    /// guessed path is how work ends up somewhere the author never looks. Until a
+    /// path is chosen, `save` refuses and the caller asks.
+    saved: bool,
 }
 
 impl Document {
-    /// Wrap a story that has not been saved anywhere yet.
+    /// Wrap a story that already has a home on disk.
+    ///
+    /// Used by [`Document::open`] and by tests. A document created from scratch
+    /// should use [`Document::untitled`], which knows it has never been written.
     #[must_use]
     pub fn new(story: Story, path: impl Into<PathBuf>) -> Self {
         Self {
             story,
             path: path.into(),
+            saved: false,
         }
+    }
+
+    /// A story that has never been written anywhere.
+    ///
+    /// The path is a placeholder for display only; `save` refuses until
+    /// [`Document::save_as`] gives it a real one.
+    #[must_use]
+    pub fn untitled(story: Story) -> Self {
+        Self {
+            story,
+            path: PathBuf::from("untitled.ron"),
+            saved: false,
+        }
+    }
+
+    /// Whether the document has ever been written to disk.
+    #[must_use]
+    pub fn has_file(&self) -> bool {
+        self.saved
     }
 
     /// Read a story from disk.
@@ -58,6 +87,7 @@ impl Document {
         Ok(Self {
             story,
             path: path.to_path_buf(),
+            saved: true,
         })
     }
 
@@ -74,6 +104,7 @@ impl Document {
     /// Point the document at a different file, for "save as".
     pub fn set_path(&mut self, path: impl Into<PathBuf>) {
         self.path = path.into();
+        self.saved = true;
     }
 
     /// Replace the story wholesale. Used by the editor after a successful operation
@@ -88,31 +119,48 @@ impl Document {
     /// before returning: a save that produces a file the engine cannot open would be
     /// the worst possible outcome, and re-parsing costs microseconds.
     pub fn save(&self) -> Result<(), EditError> {
+        if !self.saved {
+            return Err(EditError::Write {
+                path: self.path.display().to_string(),
+                message: "this story has no file yet; choose where to save it".to_owned(),
+            });
+        }
+
+        // Write, then confirm the file loads back. A save that produces a file the
+        // engine cannot open would be the worst possible outcome; re-parsing costs
+        // microseconds.
+        self.write_to(&self.path)
+    }
+
+    fn write_to(&self, path: &Path) -> Result<(), EditError> {
         let text = ron::ser::to_string_pretty(&self.story, ron::ser::PrettyConfig::default())
             .map_err(|err| EditError::Write {
-                path: self.path.display().to_string(),
+                path: path.display().to_string(),
                 message: err.to_string(),
             })?;
 
-        // Round-trip check before touching the file, so a serializer bug cannot
-        // destroy a script that was fine.
         if let Err(err) = rustory_script::parse_story(&text, "memory") {
             return Err(EditError::Write {
-                path: self.path.display().to_string(),
+                path: path.display().to_string(),
                 message: format!("refusing to write a file that would not load back: {err}"),
             });
         }
 
-        std::fs::write(&self.path, text).map_err(|err| EditError::Write {
-            path: self.path.display().to_string(),
+        std::fs::write(path, text).map_err(|err| EditError::Write {
+            path: path.display().to_string(),
             message: err.to_string(),
         })
     }
 
     /// Write to a specific path and adopt it.
     pub fn save_as(&mut self, path: impl AsRef<Path>) -> Result<(), EditError> {
-        self.path = path.as_ref().to_path_buf();
-        self.save()
+        let path = path.as_ref().to_path_buf();
+        self.write_to(&path)?;
+        // Adopted only after the write succeeded, so a failed save-as leaves the
+        // document pointing at whatever it was pointing at before.
+        self.path = path;
+        self.saved = true;
+        Ok(())
     }
 
     /// The RON text this document would write, without writing it.

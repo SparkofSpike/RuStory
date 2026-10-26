@@ -865,3 +865,186 @@ fn a_saved_file_loads_back_with_every_beat_intact() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+// --- gameplay outcomes --------------------------------------------------
+
+/// A node that hands over to a system with two mapped outcomes.
+fn gameplay() -> Editor {
+    editor_of(story_with(
+        vec![
+            (
+                "play",
+                Node {
+                    beats: vec![],
+                    exit: Exit::Gameplay {
+                        spec: GameplaySpec {
+                            system: SystemId::from("timer.timed_choice"),
+                            config: None,
+                            outcomes: [
+                                (OutcomeKey::from("correct"), NodeId::from("won")),
+                                (OutcomeKey::from("timeout"), NodeId::from("lost")),
+                            ]
+                            .into_iter()
+                            .collect(),
+                        },
+                    },
+                },
+            ),
+            (
+                "won",
+                Node {
+                    beats: vec![],
+                    exit: Exit::End { ending: None },
+                },
+            ),
+            (
+                "lost",
+                Node {
+                    beats: vec![],
+                    exit: Exit::End { ending: None },
+                },
+            ),
+        ],
+        "play",
+    ))
+}
+
+fn outcomes_of(editor: &Editor, node: &str) -> Vec<(String, String)> {
+    let Exit::Gameplay { spec } = &editor.story().nodes[&NodeId::from(node)].exit else {
+        panic!("`{node}` should be a gameplay node");
+    };
+    spec.outcomes
+        .iter()
+        .map(|(key, to)| (key.to_string(), to.to_string()))
+        .collect()
+}
+
+#[test]
+fn an_outcome_mapping_can_be_added() {
+    let mut editor = gameplay();
+
+    editor
+        .apply(&EditOp::SetOutcome {
+            node: NodeId::from("play"),
+            outcome: OutcomeKey::from("wrong"),
+            to: NodeId::from("lost"),
+        })
+        .expect("adds");
+
+    let outcomes = outcomes_of(&editor, "play");
+    assert_eq!(outcomes.len(), 3);
+    assert!(
+        outcomes.contains(&("wrong".into(), "lost".into())),
+        "got {outcomes:?}"
+    );
+}
+
+#[test]
+fn setting_an_existing_outcome_retargets_it_rather_than_duplicating() {
+    let mut editor = gameplay();
+
+    editor
+        .apply(&EditOp::SetOutcome {
+            node: NodeId::from("play"),
+            outcome: OutcomeKey::from("correct"),
+            to: NodeId::from("lost"),
+        })
+        .expect("retargets");
+
+    let outcomes = outcomes_of(&editor, "play");
+    assert_eq!(outcomes.len(), 2, "a key cannot appear twice: {outcomes:?}");
+    assert!(outcomes.contains(&("correct".into(), "lost".into())));
+}
+
+#[test]
+fn an_outcome_mapping_can_be_removed() {
+    let mut editor = gameplay();
+
+    editor
+        .apply(&EditOp::DeleteOutcome {
+            node: NodeId::from("play"),
+            outcome: OutcomeKey::from("timeout"),
+        })
+        .expect("removes");
+
+    let outcomes = outcomes_of(&editor, "play");
+    assert_eq!(outcomes, vec![("correct".to_string(), "won".to_string())]);
+}
+
+#[test]
+fn removing_an_outcome_that_does_not_exist_is_refused_by_name() {
+    let mut editor = gameplay();
+    let snapshot = editor.story().clone();
+
+    let err = editor
+        .apply(&EditOp::DeleteOutcome {
+            node: NodeId::from("play"),
+            outcome: OutcomeKey::from("ghost"),
+        })
+        .expect_err("must refuse");
+
+    assert!(
+        matches!(err, EditError::NoSuchOutcome { ref outcome, .. } if outcome == "ghost"),
+        "unexpected error: {err}"
+    );
+    assert_eq!(editor.story(), &snapshot, "a refused edit changes nothing");
+}
+
+#[test]
+fn mapping_an_outcome_to_a_missing_node_is_rolled_back() {
+    let mut editor = gameplay();
+    let snapshot = editor.story().clone();
+
+    let err = editor
+        .apply(&EditOp::SetOutcome {
+            node: NodeId::from("play"),
+            outcome: OutcomeKey::from("correct"),
+            to: NodeId::from("nowhere"),
+        })
+        .expect_err("validation must catch the dangling target");
+
+    assert!(matches!(err, EditError::WouldInvalidate(_)));
+    assert_eq!(editor.story(), &snapshot);
+}
+
+#[test]
+fn outcomes_can_only_be_set_on_a_gameplay_node() {
+    let mut editor = linked();
+    let err = editor
+        .apply(&EditOp::SetOutcome {
+            node: NodeId::from("b"),
+            outcome: OutcomeKey::from("win"),
+            to: NodeId::from("a"),
+        })
+        .expect_err("must refuse");
+    assert!(matches!(err, EditError::NoGameplay(_)));
+}
+
+#[test]
+fn emptying_the_outcome_table_is_allowed_but_reported_as_a_problem() {
+    // Deleting mappings one by one is how an author retargets a scene. Blocking the
+    // last deletion would trap them; the fault list is what warns them.
+    let mut editor = gameplay();
+    editor
+        .apply(&EditOp::DeleteOutcome {
+            node: NodeId::from("play"),
+            outcome: OutcomeKey::from("correct"),
+        })
+        .expect("first removal");
+    editor
+        .apply(&EditOp::DeleteOutcome {
+            node: NodeId::from("play"),
+            outcome: OutcomeKey::from("timeout"),
+        })
+        .expect("second removal");
+
+    assert!(outcomes_of(&editor, "play").is_empty());
+    assert!(
+        editor
+            .problems()
+            .iter()
+            .any(|p| p.contains("maps no outcomes")),
+        "an unmapped gameplay node should be flagged: {:#?}",
+        editor.problems()
+    );
+}

@@ -70,6 +70,36 @@ impl Editor {
         Ok(Self::new(Document::open(path)?))
     }
 
+    /// Start a new story that has never been saved.
+    ///
+    /// The result is immediately editable and immediately valid: one node named
+    /// `start` with an `End` exit. A blank document that failed validation would make
+    /// every subsequent operation fail, which is a bad first five minutes.
+    #[must_use]
+    pub fn new_story(title: Option<String>) -> Self {
+        use rustory_core::{Exit, Node, NodeId, Story, StoryMeta};
+        use std::collections::BTreeMap;
+
+        let start = NodeId::from("start");
+        let mut nodes = BTreeMap::new();
+        nodes.insert(
+            start.clone(),
+            Node {
+                beats: Vec::new(),
+                exit: Exit::End { ending: None },
+            },
+        );
+
+        Self::new(Document::untitled(Story {
+            meta: StoryMeta {
+                title,
+                author: None,
+            },
+            start,
+            nodes,
+        }))
+    }
+
     #[must_use]
     pub fn document(&self) -> &Document {
         &self.document

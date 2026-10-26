@@ -152,6 +152,16 @@ pub fn catalogue() -> Vec<OpInfo> {
                 summary: "Remove an option from a node that offers choices.",
                 changes_structure: true,
             },
+            E::SetOutcome { .. } => OpInfo {
+                name: "SetOutcome",
+                summary: "Map a gameplay outcome key to a node.",
+                changes_structure: true,
+            },
+            E::DeleteOutcome { .. } => OpInfo {
+                name: "DeleteOutcome",
+                summary: "Remove a gameplay outcome mapping.",
+                changes_structure: true,
+            },
         }
     }
 
@@ -221,9 +231,18 @@ pub fn catalogue() -> Vec<OpInfo> {
             node: NodeId::from("x"),
             index: 0,
         },
+        E::SetOutcome {
+            node: NodeId::from("x"),
+            outcome: OutcomeKey::from("win"),
+            to: NodeId::from("y"),
+        },
+        E::DeleteOutcome {
+            node: NodeId::from("x"),
+            outcome: OutcomeKey::from("win"),
+        },
     ];
 
     samples.iter().map(describe).collect()
 }
 
-use rustory_core::{Beat, Exit, NodeId};
+use rustory_core::{Beat, Exit, NodeId, OutcomeKey};

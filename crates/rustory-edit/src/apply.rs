@@ -260,6 +260,33 @@ pub(crate) fn apply(story: &mut Story, op: &EditOp) -> Result<(), EditError> {
             }
             choices.remove(*index);
         }
+
+        EditOp::SetOutcome { node, outcome, to } => {
+            let node_ref = story
+                .nodes
+                .get_mut(node)
+                .ok_or_else(|| EditError::NoSuchNode(node.clone()))?;
+            let Exit::Gameplay { spec } = &mut node_ref.exit else {
+                return Err(EditError::NoGameplay(node.clone()));
+            };
+            spec.outcomes.insert(outcome.clone(), to.clone());
+        }
+
+        EditOp::DeleteOutcome { node, outcome } => {
+            let node_ref = story
+                .nodes
+                .get_mut(node)
+                .ok_or_else(|| EditError::NoSuchNode(node.clone()))?;
+            let Exit::Gameplay { spec } = &mut node_ref.exit else {
+                return Err(EditError::NoGameplay(node.clone()));
+            };
+            if spec.outcomes.remove(outcome).is_none() {
+                return Err(EditError::NoSuchOutcome {
+                    node: node.clone(),
+                    outcome: outcome.to_string(),
+                });
+            }
+        }
     }
 
     Ok(())

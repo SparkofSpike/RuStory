@@ -107,6 +107,26 @@ pub enum EditOp {
     /// played, and silently converting it to an `End` would change what the story
     /// does without saying so.
     DeleteChoice { node: NodeId, index: usize },
+
+    // --- gameplay outcomes -------------------------------------------------
+    /// Map a gameplay outcome key to a node, adding or replacing the mapping.
+    ///
+    /// `outcome` is whatever the system reports; the editor does not know which keys
+    /// are legal, because doing so would mean the editor knew about specific systems.
+    SetOutcome {
+        node: NodeId,
+        outcome: rustory_core::OutcomeKey,
+        to: NodeId,
+    },
+    /// Remove an outcome mapping.
+    ///
+    /// Allowed to empty the table: a half-written gameplay node is a normal state while
+    /// editing, and `problems()` reports it rather than blocking the author from
+    /// getting there.
+    DeleteOutcome {
+        node: NodeId,
+        outcome: rustory_core::OutcomeKey,
+    },
 }
 
 impl EditOp {
@@ -129,6 +149,8 @@ impl EditOp {
                 | Self::SetExit { .. }
                 | Self::AddChoice { .. }
                 | Self::DeleteChoice { .. }
+                | Self::SetOutcome { .. }
+                | Self::DeleteOutcome { .. }
         )
     }
 
@@ -151,6 +173,12 @@ impl EditOp {
             Self::AddChoice { node, .. } => format!("add choice to {node}"),
             Self::UpdateChoice { node, index, .. } => format!("edit choice {index} in {node}"),
             Self::DeleteChoice { node, index } => format!("delete choice {index} in {node}"),
+            Self::SetOutcome { node, outcome, to } => {
+                format!("map outcome {outcome} to {to} in {node}")
+            }
+            Self::DeleteOutcome { node, outcome } => {
+                format!("unmap outcome {outcome} in {node}")
+            }
         }
     }
 }
