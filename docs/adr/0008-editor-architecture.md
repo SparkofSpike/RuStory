@@ -89,6 +89,12 @@ of one node while another is selected is a panel that lies about what it is show
 header text is taken from the same `Narrative` that produced the frame, for the same
 reason: two answers to "where am I" eventually disagree.
 
+It is also playable. The position is a path of steps (`Click`, `Choose(i)`) rather than a
+count, so clicking the frame advances, branches appear as buttons, and the slider rewinds
+along the path already taken. Replaying a path against an edited story lands where the
+clicks did; a branch that no longer exists falls back to advancing rather than wedging
+the preview.
+
 Layout code is duplicated between `apps/rustory/src/scene.rs` and
 `apps/rustory-editor/src/preview.rs`. That duplication is a **known cost**, recorded here
 rather than hidden: the alternative is hoisting layout into `rustory-render`, which would

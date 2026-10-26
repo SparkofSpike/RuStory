@@ -121,8 +121,9 @@ turning the exit into an `End`.
 
 The preview panel is the real engine — `rustory_render` drawing the same `Frame` that
 `rustory play` shows — and it starts at the node you have selected, so clicking a node
-shows that node's frame rather than the top of the story. See
-[ADR 0008](docs/adr/0008-editor-architecture.md).
+shows that node's frame rather than the top of the story. It is a playthrough, not a
+still: click the picture to advance, and when the story offers branches they appear as
+buttons under it. See [ADR 0008](docs/adr/0008-editor-architecture.md).
 
 ## Try it
 

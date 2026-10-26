@@ -24,7 +24,7 @@ use rustory_edit::prelude::*;
 
 use crate::dialogs;
 use crate::panels;
-use crate::preview::{AssetPaths, Preview};
+use crate::preview::{AssetPaths, Preview, Step};
 use crate::recent::RecentFiles;
 
 /// A file-level request from the UI.
@@ -60,9 +60,10 @@ pub struct EditorApp {
     pub node_filter: String,
     /// Whether the story settings form is expanded.
     pub show_story_settings: bool,
-    /// How many interactions the preview has applied. The preview is a real
-    /// `Narrative`, so this is a genuine position in the story rather than a slide.
-    pub preview_step: usize,
+    /// The actions the preview has replayed to reach the frame on screen. A path, not a
+    /// counter: the preview is a real `Narrative`, so the same list replayed against an
+    /// edited story still lands where the clicks did.
+    pub preview_steps: Vec<Step>,
     pub preview: Preview,
     /// Where to look for art, derived from the open file's location.
     pub assets: AssetPaths,
@@ -97,7 +98,7 @@ impl EditorApp {
             new_outcome: String::new(),
             node_filter: String::new(),
             show_story_settings: false,
-            preview_step: 0,
+            preview_steps: Vec::new(),
             preview: Preview::new(),
             assets: AssetPaths::from_cwd(),
             preview_status: String::new(),
@@ -141,7 +142,7 @@ impl EditorApp {
             Ok(editor) => {
                 self.selected = Some(editor.story().start.clone());
                 self.editor = Some(editor);
-                self.preview_step = 0;
+                self.preview_steps.clear();
                 self.preview.reset();
                 // Art is looked up beside the story, not beside the process. Opening a
                 // project from a different directory must not silently lose its images.
@@ -179,7 +180,7 @@ impl EditorApp {
         let editor = Editor::new_story(Some("Untitled".to_owned()));
         self.selected = Some(editor.story().start.clone());
         self.editor = Some(editor);
-        self.preview_step = 0;
+        self.preview_steps.clear();
         self.preview.reset();
         self.assets = AssetPaths::from_cwd();
         self.set_status("New story — save it to choose a location", false);
@@ -217,7 +218,7 @@ impl EditorApp {
     /// frame that has nothing to do with what the author just clicked.
     pub fn select(&mut self, id: NodeId) {
         if self.selected.as_ref() != Some(&id) {
-            self.preview_step = 0;
+            self.preview_steps.clear();
         }
         self.selected = Some(id);
     }

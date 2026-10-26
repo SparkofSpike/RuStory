@@ -39,6 +39,32 @@ pub const HEIGHT: u32 = 720;
 /// document changes. So the frame is rendered offscreen, read back, and handed to egui
 /// as an ordinary texture. A few milliseconds on edit, nothing while idle, and the
 /// display path is the one egui is actually designed for.
+/// One thing a player did, kept so a position can be replayed instead of mutated.
+///
+/// The preview is rebuilt from a path whenever the document changes: an edit, an undo or
+/// a switch of node all invalidate an in-memory position, and replaying the actions is
+/// the one way to be sure the frame matches the text on screen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Step {
+    /// Advance: finish a line, move on, or resolve a gameplay handover the way the CLI
+    /// would.
+    Click,
+    /// Take a branch. A path that no longer fits falls back to [`Step::Click`], because
+    /// editing the story can move a choice out from under it.
+    Choose(usize),
+}
+
+/// What the frame means for the person looking at it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreviewReport {
+    /// Where the preview is, as one line of text.
+    pub status: String,
+    /// Labels of the choices on offer; empty when nothing is being asked.
+    pub choices: Vec<String>,
+    /// Whether the story has ended.
+    pub finished: bool,
+}
+
 pub struct Preview {
     renderer: Option<Renderer>,
 
@@ -54,13 +80,13 @@ pub struct Preview {
     image: Option<egui::TextureHandle>,
 
     /// What the cached image was rendered from, so an unchanged document does not
-    /// re-render. `(story checksum, start node, step)`.
-    last_key: Option<(u64, NodeId, usize)>,
+    /// re-render. `(story checksum, start node, the steps taken)`.
+    last_key: Option<(u64, NodeId, Vec<Step>)>,
 
-    /// The last status line, so a cache hit reports the same thing as the render that
+    /// The last report, so a cache hit answers with the same thing as the render that
     /// filled it. Recomputing it on a hit produced a shorter message, which made the
     /// header flicker between two formats.
-    last_status: Option<String>,
+    last_report: Option<PreviewReport>,
 
     /// Why rendering is unavailable, if it is. Shown to the user instead of an empty
     /// panel, because "no picture" and "no GPU" are different problems.
@@ -81,7 +107,7 @@ impl Preview {
             bank: None,
             image: None,
             last_key: None,
-            last_status: None,
+            last_report: None,
             unavailable: None,
         }
     }
@@ -128,7 +154,7 @@ impl Preview {
     pub fn reset(&mut self) {
         self.image = None;
         self.last_key = None;
-        self.last_status = None;
+        self.last_report = None;
         self.bank = None;
     }
 
@@ -145,18 +171,19 @@ impl Preview {
         ctx: &egui::Context,
         story: &Story,
         start: &NodeId,
-        steps: usize,
+        steps: &[Step],
         paths: &AssetPaths,
-    ) -> Result<String, String> {
-        // The start node belongs in the key: selecting a different node has to produce a
-        // different frame even when the document and the step count are unchanged.
-        let key = (story.checksum(), start.clone(), steps);
+    ) -> Result<PreviewReport, String> {
+        // The start node and the path both belong in the key: selecting a different node
+        // or taking a different branch has to produce a different frame even when the
+        // document is unchanged.
+        let key = (story.checksum(), start.clone(), steps.to_vec());
 
         if self.last_key.as_ref() == Some(&key)
             && self.image.is_some()
-            && let Some(status) = self.last_status.clone()
+            && let Some(report) = self.last_report.clone()
         {
-            return Ok(status);
+            return Ok(report);
         }
 
         let Some(renderer) = self.renderer.as_mut() else {
@@ -166,11 +193,22 @@ impl Preview {
         let mut narrative = Narrative::at(story.clone(), start).map_err(|err| err.to_string())?;
         let mut registry = default_registry();
 
-        for _ in 0..steps {
+        for action in steps {
             if matches!(narrative.mode(), Mode::Finished { .. }) {
                 break;
             }
-            step(&mut narrative, &mut registry)?;
+            match action {
+                Step::Click => step(&mut narrative, &mut registry)?,
+                Step::Choose(index) => {
+                    if matches!(narrative.mode(), Mode::AwaitingChoice { .. }) {
+                        narrative.choose(*index).map_err(|err| err.to_string())?;
+                    } else {
+                        // The path was recorded against a different version of the
+                        // story. Advancing is the closest honest reading of it.
+                        step(&mut narrative, &mut registry)?;
+                    }
+                }
+            }
         }
 
         // Show the line in full: a preview of half a sentence tells the user nothing
@@ -218,13 +256,28 @@ impl Preview {
             format!("{image_count} image(s)")
         };
 
-        let status = format!(
-            "{} · {} primitives · {art}",
-            status_of(&narrative),
-            frame.primitive_count()
-        );
-        self.last_status = Some(status.clone());
-        Ok(status)
+        // Choices and the ending flag are read while the story is still in hand: the
+        // panel needs them to draw buttons, and a cached string cannot say which branch
+        // is on offer.
+        let choices = match narrative.mode() {
+            Mode::AwaitingChoice { choices, .. } => {
+                choices.iter().map(|choice| choice.label.clone()).collect()
+            }
+            _ => Vec::new(),
+        };
+        let finished = matches!(narrative.mode(), Mode::Finished { .. });
+
+        let report = PreviewReport {
+            status: format!(
+                "{} · {} primitives · {art}",
+                status_of(&narrative),
+                frame.primitive_count()
+            ),
+            choices,
+            finished,
+        };
+        self.last_report = Some(report.clone());
+        Ok(report)
     }
 }
 

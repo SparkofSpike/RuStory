@@ -12,6 +12,7 @@ use rustory_core::{Beat, Exit, NodeId, Slot};
 use rustory_edit::prelude::*;
 
 use crate::app::{EditorApp, UiAction};
+use crate::preview::{PreviewReport, Step};
 
 /// Whether a node id matches the filter text. Case-insensitive, trimmed, and an empty
 /// filter matches everything.
@@ -151,22 +152,22 @@ pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
 
             // Preview position, right-aligned so it does not shift with the file name.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let total = app
-                    .editor
-                    .as_ref()
-                    .map_or(0, |editor| editor.story().beat_count());
-                let max = total.max(1);
+                let position = app.preview_steps.len();
 
                 if ui.button(">>").on_hover_text("Step forward").clicked() {
-                    app.preview_step += 1;
+                    app.preview_steps.push(Step::Click);
                 }
-                ui.add(
-                    egui::Slider::new(&mut app.preview_step, 0..=max)
-                        .text("step")
-                        .clamping(egui::SliderClamping::Always),
-                );
+                // The slider rewinds along the path already taken; forward is the button,
+                // because how long the story is only becomes known by playing it.
+                let mut target = position;
+                if ui
+                    .add(egui::Slider::new(&mut target, 0..=position.max(1)).text("step"))
+                    .changed()
+                {
+                    app.preview_steps.truncate(target);
+                }
                 if ui.button("<<").on_hover_text("Reset preview").clicked() {
-                    app.preview_step = 0;
+                    app.preview_steps.clear();
                 }
                 ui.label("Preview:");
             });
@@ -891,7 +892,7 @@ pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
             //
             // Problems and the story are captured before any mutation: `set_status`
             // borrows all of `app`, which would conflict with holding `editor`.
-            let step = app.preview_step;
+            let steps = app.preview_steps.clone();
             let assets = app.assets.clone();
             let problems = editor.problems();
             // Preview what the author is looking at, not the beginning of the story. A
@@ -903,13 +904,20 @@ pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
                 .unwrap_or_else(|| editor.story().start.clone());
             let outcome = app
                 .preview
-                .render(ui.ctx(), editor.story(), &start, step, &assets);
-            let (status_line, failed) = match outcome {
-                Ok(status) => (status, None),
-                Err(err) => (err.clone(), Some(err)),
+                .render(ui.ctx(), editor.story(), &start, &steps, &assets);
+            let (report, failed) = match outcome {
+                Ok(report) => (report, None),
+                Err(err) => (
+                    PreviewReport {
+                        status: err.clone(),
+                        choices: Vec::new(),
+                        finished: false,
+                    },
+                    Some(err),
+                ),
             };
 
-            app.preview_status = status_line;
+            app.preview_status = report.status.clone();
             app.status_is_error = failed.is_some();
             if let Some(err) = failed {
                 app.set_status(format!("preview: {err}"), true);
@@ -919,13 +927,35 @@ pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
                 let available = ui.available_width();
                 let height =
                     available * (crate::preview::HEIGHT as f32 / crate::preview::WIDTH as f32);
-                ui.add(egui::Image::new(handle).fit_to_exact_size(egui::vec2(available, height)));
+                // Clicking the frame advances the story: the preview is a playthrough, not
+                // a still, and the alternative is finding the >> button every time.
+                let response = ui.add(
+                    egui::Image::new(handle)
+                        .fit_to_exact_size(egui::vec2(available, height))
+                        .sense(egui::Sense::click()),
+                );
+                if response.clicked() {
+                    app.preview_steps.push(Step::Click);
+                }
             }
 
             ui.separator();
             ui.label(format!("at {}", app.preview_status));
-            if app.preview_step > 0 && ui.button("Reset preview").clicked() {
-                app.preview_step = 0;
+            if !app.preview_steps.is_empty() && ui.button("Reset preview").clicked() {
+                app.preview_steps.clear();
+            }
+
+            // The branches on offer, as buttons pressed in the playthrough. Without these
+            // a choice node shows a menu nobody can click.
+            if !report.choices.is_empty() {
+                ui.separator();
+                for (index, label) in report.choices.iter().enumerate() {
+                    if ui.button(format!("{}. {label}", index + 1)).clicked() {
+                        app.preview_steps.push(Step::Choose(index));
+                    }
+                }
+            } else if report.finished {
+                ui.label(egui::RichText::new("The story has ended.").weak());
             }
 
             if !problems.is_empty() {
