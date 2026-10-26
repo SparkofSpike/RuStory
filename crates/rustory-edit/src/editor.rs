@@ -48,6 +48,11 @@ pub struct Editor {
     past_labels: Vec<HistoryEntry>,
     /// States undone, for redo, newest first.
     future: Vec<(Story, HistoryEntry)>,
+    /// The last operation applied, for undo coalescing.
+    ///
+    /// Cleared by anything that is not a continuation of the same edit, so two separate
+    /// visits to one text field stay two undo steps.
+    last_op: Option<EditOp>,
     /// Set when the document differs from what is on disk.
     dirty: bool,
 }
@@ -61,6 +66,7 @@ impl Editor {
             past: Vec::new(),
             past_labels: Vec::new(),
             future: Vec::new(),
+            last_op: None,
             dirty: false,
         }
     }
@@ -135,15 +141,23 @@ impl Editor {
         // The single definition of validity, consulted after every operation.
         working.validate()?;
 
-        self.past.push(before);
-        self.past_labels.push(HistoryEntry { label: op.label() });
-        if self.past.len() > HISTORY_LIMIT {
-            self.past.remove(0);
-            self.past_labels.remove(0);
+        // Typing in a field emits one operation per keystroke. Merging a continuation of
+        // the same edit means Ctrl+Z steps back over the word rather than the letter,
+        // which is what a person expects and what the panel docs always claimed.
+        let continuing = op.coalesces_with(self.last_op.as_ref());
+        if !continuing {
+            self.past.push(before);
+            self.past_labels.push(HistoryEntry { label: op.label() });
+            if self.past.len() > HISTORY_LIMIT {
+                self.past.remove(0);
+                self.past_labels.remove(0);
+            }
         }
 
-        // A new edit invalidates the redo branch.
+        // A new edit invalidates the redo branch, merged or not: redo past a keystroke
+        // would replay a state the user has already typed beyond.
         self.future.clear();
+        self.last_op = Some(op.clone());
 
         self.document.replace_story(working);
         self.dirty = true;
@@ -161,6 +175,9 @@ impl Editor {
         let labels_len = self.past_labels.len();
 
         for (index, op) in ops.iter().enumerate() {
+            // Each batch entry is its own undo step: a script writer listing ten edits
+            // expects ten, not one merged soup.
+            self.last_op = None;
             if let Err(source) = self.apply(op) {
                 self.rollback_to(before, past_len, labels_len);
                 return Err(BatchError { index, source });
@@ -213,6 +230,9 @@ impl Editor {
         self.future.push((current, entry.clone()));
         self.document.replace_story(previous);
         self.dirty = true;
+        // Stepping through history breaks the typing chain: the next keystroke must be a
+        // new undo step, not a continuation of the edit that was just undone.
+        self.last_op = None;
 
         Some(entry.label)
     }
@@ -225,6 +245,7 @@ impl Editor {
         self.past_labels.push(entry.clone());
         self.document.replace_story(next);
         self.dirty = true;
+        self.last_op = None;
         self.past_labels.last().map(|entry| entry.label.clone())
     }
 
@@ -251,6 +272,7 @@ impl Editor {
         self.past.clear();
         self.past_labels.clear();
         self.future.clear();
+        self.last_op = None;
         self.dirty = false;
         Ok(())
     }

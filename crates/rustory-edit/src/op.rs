@@ -154,6 +154,59 @@ impl EditOp {
         )
     }
 
+    /// Whether this operation should merge into `previous` for undo purposes.
+    ///
+    /// # Why this exists
+    ///
+    /// A text field emits an operation per keystroke. Without merging, typing "hello"
+    /// leaves five undo steps, and the sixth Ctrl+Z deletes a letter rather than the
+    /// sentence — which is worse than no undo, because the user has to count.
+    ///
+    /// Merging is scoped tightly: same operation kind, same target, and only for edits a
+    /// person makes by continuing to type in one place. Two separate visits to the same
+    /// field are separate undo steps, because any other operation in between clears the
+    /// link — see [`Editor::apply`](crate::Editor::apply).
+    #[must_use]
+    pub fn coalesces_with(&self, previous: Option<&Self>) -> bool {
+        let Some(previous) = previous else {
+            return false;
+        };
+
+        match (self, previous) {
+            (
+                Self::UpdateBeat {
+                    node: a, index: i, ..
+                },
+                Self::UpdateBeat {
+                    node: b, index: j, ..
+                },
+            ) => a == b && i == j,
+            (
+                Self::UpdateChoice {
+                    node: a, index: i, ..
+                },
+                Self::UpdateChoice {
+                    node: b, index: j, ..
+                },
+            ) => a == b && i == j,
+            (Self::SetTitle { .. }, Self::SetTitle { .. }) => true,
+            (Self::SetAuthor { .. }, Self::SetAuthor { .. }) => true,
+            (
+                Self::SetOutcome {
+                    node: a,
+                    outcome: ao,
+                    ..
+                },
+                Self::SetOutcome {
+                    node: b,
+                    outcome: bo,
+                    ..
+                },
+            ) => a == b && ao == bo,
+            _ => false,
+        }
+    }
+
     /// A short human-readable label, for undo tooltips and CLI logs.
     #[must_use]
     pub fn label(&self) -> String {

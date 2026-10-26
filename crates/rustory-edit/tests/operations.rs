@@ -1048,3 +1048,170 @@ fn emptying_the_outcome_table_is_allowed_but_reported_as_a_problem() {
         editor.problems()
     );
 }
+
+// --- undo coalescing ----------------------------------------------------
+
+/// Typing into a field must not leave one undo step per keystroke.
+///
+/// Without merging, the sixth Ctrl+Z deletes a letter rather than the sentence, which is
+/// worse than no undo at all because the user has to count.
+#[test]
+fn consecutive_edits_to_one_beat_merge_into_a_single_undo_step() {
+    let mut editor = linked();
+    let before = editor.story().clone();
+    let node = NodeId::from("b");
+
+    for text in ["h", "he", "hel", "hell", "hello"] {
+        editor
+            .apply(&EditOp::UpdateBeat {
+                node: node.clone(),
+                index: 0,
+                beat: say(text),
+            })
+            .expect("applies");
+    }
+
+    assert_eq!(
+        editor.story().nodes[&node].beats[0],
+        say("hello"),
+        "the last keystroke wins"
+    );
+
+    // One undo must go back to before the typing started, not to "hell".
+    editor.undo().expect("undo");
+    assert_eq!(
+        editor.story(),
+        &before,
+        "undo should step over the whole word, not one character"
+    );
+}
+
+#[test]
+fn editing_a_different_beat_starts_a_new_undo_step() {
+    let mut editor = linked();
+    let node = NodeId::from("b");
+
+    editor
+        .apply(&EditOp::UpdateBeat {
+            node: node.clone(),
+            index: 0,
+            beat: say("first field"),
+        })
+        .expect("first");
+    editor
+        .apply(&EditOp::UpdateBeat {
+            node: node.clone(),
+            index: 0,
+            beat: say("first field, edited"),
+        })
+        .expect("continues");
+
+    // Different target: must not merge.
+    editor
+        .apply(&EditOp::InsertBeat {
+            node: node.clone(),
+            index: 1,
+            beat: say("second"),
+        })
+        .expect("inserts");
+    editor
+        .apply(&EditOp::UpdateBeat {
+            node: node.clone(),
+            index: 1,
+            beat: say("second, edited"),
+        })
+        .expect("edits");
+
+    assert_eq!(editor.story().nodes[&node].beats.len(), 2);
+
+    // Three distinct steps: beat 1 typing merged, insert, beat 2 typing merged.
+    editor.undo().expect("undo 1");
+    assert_eq!(editor.story().nodes[&node].beats[1], say("second"));
+    editor.undo().expect("undo 2");
+    assert_eq!(editor.story().nodes[&node].beats.len(), 1);
+    editor.undo().expect("undo 3");
+    assert_eq!(editor.story().nodes[&node].beats[0], say("second"));
+}
+
+#[test]
+fn undo_clears_the_typing_chain_so_the_next_edit_is_its_own_step() {
+    let mut editor = linked();
+    let node = NodeId::from("b");
+
+    editor
+        .apply(&EditOp::UpdateBeat {
+            node: node.clone(),
+            index: 0,
+            beat: say("typed"),
+        })
+        .expect("first");
+    editor.undo().expect("undo");
+
+    editor
+        .apply(&EditOp::UpdateBeat {
+            node: node.clone(),
+            index: 0,
+            beat: say("typed again"),
+        })
+        .expect("second");
+
+    // If the chain had survived the undo, this undo would jump past the first edit too.
+    editor.undo().expect("undo");
+    assert_eq!(editor.story().nodes[&node].beats[0], say("second"));
+}
+
+#[test]
+fn a_batch_gives_each_entry_its_own_undo_step() {
+    // A caller listing ten edits in a batch expects ten steps, not one merged blob.
+    let mut editor = linked();
+    let ops = [
+        EditOp::CreateNode {
+            id: NodeId::from("x"),
+            at: None,
+        },
+        EditOp::CreateNode {
+            id: NodeId::from("y"),
+            at: None,
+        },
+    ];
+
+    editor.apply_all(&ops).expect("batch");
+    editor.undo().expect("undo 1");
+    assert!(editor.story().nodes.contains_key(&NodeId::from("x")));
+    assert!(!editor.story().nodes.contains_key(&NodeId::from("y")));
+}
+
+#[test]
+fn title_typing_merges_but_a_different_field_does_not() {
+    let mut editor = linked();
+
+    for title in ["A", "A S", "A St", "A Story"] {
+        editor
+            .apply(&EditOp::SetTitle {
+                title: Some(title.into()),
+            })
+            .expect("applies");
+    }
+    editor
+        .apply(&EditOp::SetAuthor {
+            author: Some("me".into()),
+        })
+        .expect("applies");
+
+    assert_eq!(editor.story().meta.title.as_deref(), Some("A Story"));
+
+    editor.undo().expect("undo author");
+    assert_eq!(editor.story().meta.author, None, "author is its own step");
+    assert_eq!(
+        editor.story().meta.title.as_deref(),
+        Some("A Story"),
+        "title survived"
+    );
+
+    editor.undo().expect("undo title");
+    assert_eq!(
+        editor.story().meta.title,
+        None,
+        "the whole title is one step"
+    );
+}
