@@ -36,7 +36,7 @@ rustory — Rust-native visual novel engine
 
 USAGE:
     rustory probe                       Check the GPU and font stack
-    rustory check <story.ron>           Parse and validate a script
+    rustory check <story.ron> [--json]  Parse and validate a script
     rustory transcript <story.ron>      Play it headlessly and print the lines
     rustory gen-assets [dir]            Write placeholder art (default: assets)
     rustory shot <story.ron> [options]  Render one frame to a PNG
@@ -73,7 +73,8 @@ fn run(args: &[String]) -> Result<(), String> {
         "probe" => probe(),
         "check" => {
             let path = args.get(1).ok_or("check needs a story path")?;
-            check(Path::new(path))
+            let as_json = args.iter().any(|arg| arg == "--json");
+            check(Path::new(path), as_json)
         }
         "transcript" => {
             let path = args.get(1).ok_or("transcript needs a story path")?;
@@ -139,8 +140,24 @@ fn load(path: &Path) -> Result<rustory_core::Story, String> {
     })
 }
 
-fn check(path: &Path) -> Result<(), String> {
-    let story = load(path)?;
+fn check(path: &Path, as_json: bool) -> Result<(), String> {
+    let story = match load(path) {
+        Ok(story) => story,
+        Err(err) => {
+            if as_json {
+                // stdout carries the document; the exit code is what a script reads.
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "ok": false,
+                        "path": path.display().to_string(),
+                        "error": err,
+                    })
+                );
+            }
+            return Err(err);
+        }
+    };
 
     let choices = story
         .nodes
@@ -153,6 +170,49 @@ fn check(path: &Path) -> Result<(), String> {
         .filter(|node| matches!(node.exit, rustory_core::Exit::Gameplay { .. }))
         .count();
 
+    // Systems the story invokes but nothing registered: a load-time failure is much
+    // cheaper than discovering it three scenes in.
+    let registry = driver::default_registry();
+    let mut missing = Vec::new();
+    for system in driver::required_systems(&story) {
+        if !registry.contains(&rustory_core::SystemId::from(system.as_str())) {
+            missing.push(system);
+        }
+    }
+
+    let mut mappings: Vec<(String, Vec<String>)> = Vec::new();
+    for (system, outcomes) in driver::mapped_outcomes(&story) {
+        mappings.push((
+            system.to_string(),
+            outcomes.iter().map(|key| key.to_string()).collect(),
+        ));
+    }
+
+    if as_json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "path": path.display().to_string(),
+                "nodes": story.nodes.len(),
+                "beats": story.beat_count(),
+                "choice_points": choices,
+                "gameplay_handovers": gameplay,
+                "title": story.meta.title,
+                "author": story.meta.author,
+                "missing_systems": missing,
+                "outcomes": mappings
+                    .iter()
+                    .map(|(system, handles)| serde_json::json!({
+                        "system": system,
+                        "handles": handles,
+                    }))
+                    .collect::<Vec<_>>(),
+            })
+        );
+        return Ok(());
+    }
+
     println!("ok: {}", path.display());
     println!(
         "{} nodes, {} beats, {} choice points, {} gameplay handovers",
@@ -164,24 +224,11 @@ fn check(path: &Path) -> Result<(), String> {
     if let Some(title) = &story.meta.title {
         println!("title: {title}");
     }
-
-    // Warn about systems the story invokes but nothing registered: a load-time
-    // failure is much cheaper than discovering it three scenes in.
-    let registry = driver::default_registry();
-    for system in driver::required_systems(&story) {
-        if !registry.contains(&rustory_core::SystemId::from(system.as_str())) {
-            println!("warning: gameplay system `{system}` is not registered");
-        }
+    for system in &missing {
+        println!("warning: gameplay system `{system}` is not registered");
     }
-    for (system, outcomes) in driver::mapped_outcomes(&story) {
-        println!(
-            "{system}: handles {}",
-            outcomes
-                .iter()
-                .map(|key| key.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+    for (system, handles) in &mappings {
+        println!("{system}: handles {}", handles.join(", "));
     }
     Ok(())
 }

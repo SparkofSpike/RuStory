@@ -129,7 +129,7 @@ buttons under it. See [ADR 0008](docs/adr/0008-editor-architecture.md).
 
 ```console
 $ cargo run -p rustory -- gen-assets assets       # placeholder art
-$ cargo run -p rustory -- check stories/demo.ron  # parse + validate
+$ cargo run -p rustory -- check stories/demo.ron  # parse + validate (--json for a report)
 $ cargo run -p rustory -- play stories/demo.ron   # play it
 $ cargo run -p rustory -- shot stories/demo.ron --out frame.png --advance 4
 $ cargo run -p rustory -- shot stories/demo.ron --at honest:2 --out frame.png
