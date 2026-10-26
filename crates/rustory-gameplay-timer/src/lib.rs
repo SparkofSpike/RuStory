@@ -102,6 +102,17 @@ pub struct TimedChoice {
     chosen: Option<usize>,
 }
 
+/// What a save must remember about a timed choice.
+///
+/// `config` is deliberately absent: it comes back from the script through
+/// [`GameplaySystem::begin`], and duplicating it here would let a save carry a
+/// stale duration that disagrees with the script it is loaded against.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct TimerState {
+    remaining_ms: u32,
+    chosen: Option<usize>,
+}
+
 impl TimedChoice {
     #[must_use]
     pub fn new() -> Self {
@@ -181,6 +192,49 @@ impl GameplaySystem for TimedChoice {
         self.config = None;
         self.remaining_ms = 0;
         self.chosen = None;
+    }
+
+    /// Persist the countdown.
+    ///
+    /// A timer looks like it could be rebuilt from `Stats` alone, and a naive
+    /// implementation would do exactly that. It would be wrong: `Stats` records
+    /// attempts, not how much of *this* countdown is left, and reading a save would
+    /// restart the clock. Anything the player can perceive as time passing belongs
+    /// in here.
+    fn save(&self) -> Result<Option<ron::Value>, CoreError> {
+        if self.config.is_none() {
+            // Never begun, nothing worth restoring.
+            return Ok(None);
+        }
+        let state = TimerState {
+            remaining_ms: self.remaining_ms,
+            chosen: self.chosen,
+        };
+        let value = encode_state(&state).map_err(|message| CoreError::GameplaySaveFailed {
+            system: SYSTEM_ID.to_owned(),
+            message,
+        })?;
+        Ok(Some(value))
+    }
+
+    fn restore(&mut self, state: Option<&ron::Value>) -> Result<(), CoreError> {
+        // `begin` has already run, so the config is present and the countdown is at
+        // its full duration. Absence of state means the save predates this system
+        // implementing `save`, and starting the countdown fresh is the best guess
+        // available.
+        let Some(value) = state else {
+            return Ok(());
+        };
+
+        let state: TimerState =
+            decode_state(value).map_err(|message| CoreError::GameplayRestoreFailed {
+                system: SYSTEM_ID.to_owned(),
+                message,
+            })?;
+
+        self.remaining_ms = state.remaining_ms;
+        self.chosen = state.chosen;
+        Ok(())
     }
 
     fn prompt(&self) -> Option<String> {
