@@ -12,7 +12,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.85"
-repository = "https://github.com/OWNER/rustory"
+repository = "https://github.com/SparkofSpike/rustory"
 description = "RuStory — Rust-native visual novel engine with composable gameplay"
 
 [workspace.dependencies]
@@ -24,8 +24,9 @@ serde = { version = "1", features = ["derive"] }
 ron = "0.11"
 thiserror = "2"
 
-# 平台适配层：只借用操作系统抽象的现成实现，不自研。
-# 引擎自身的世界模型、调度、状态机、剧本格式、玩法契约全部在 rustory-core 里自研。
+# Platform layer: borrow existing implementations of OS abstractions, never build
+# them. The engine's own world model, scheduling, state machine, story format and
+# gameplay contract all live in rustory-core and are written from scratch.
 winit = "0.30"
 wgpu = "30"
 glyphon = "0.12"
@@ -33,9 +34,10 @@ pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
 
 [profile.dev]
-# 自研代码保持低优化以维持增量编译速度。
+# Workspace crates stay at low optimization for fast incremental builds.
 opt-level = 1
 
 [profile.dev.package."*"]
-# 依赖（尤其 wgpu/naga）用高优化，否则运行帧率会低到无法判断渲染是否正确。
+# Dependencies (especially wgpu/naga) run at high optimization; a low-optimized
+# build is slow enough that a frame-rate problem looks like a renderer bug.
 opt-level = 3
