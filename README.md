@@ -1,4 +1,4 @@
-﻿# RuStory
+# RuStory
 
 **A Rust-native visual novel engine with composable gameplay.**
 
@@ -56,7 +56,7 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 156 tests, including offscreen GPU renders and 32 covering the editor operations
+- 178 tests, including offscreen GPU renders, colour round-trips, and 39 covering the editor operations
 
 Not yet: audio, rollback history, WASM plugins, an authoring tool. Those have ADRs
 describing the plan, not code pretending to be one.
@@ -71,11 +71,22 @@ only one program's worth of rules.
 ![Editor](shots/editor.png)
 
 ```console
-$ cargo run -p rustory-editor -- stories/demo.ron   # GUI
-$ cargo run -p rustory -- ops --json                # what an agent can do
+$ cargo run -p rustory-editor                        # new story
+$ cargo run -p rustory-editor -- stories/demo.ron    # open an existing one
+$ cargo run -p rustory -- ops --json                 # what an agent can do
 $ cargo run -p rustory -- inspect stories/demo.ron --json
 $ cargo run -p rustory -- edit stories/demo.ron --op '{"op":"CreateNode","id":"epilogue"}'
 ```
+
+The editor is a normal desktop application: **New / Open / Save / Save as** with
+`Ctrl+N`, `Ctrl+O`, `Ctrl+S`, `Ctrl+Shift+S`, undo and redo on `Ctrl+Z` / `Ctrl+Y`, and a
+prompt before anything throws away unsaved work.
+
+Nodes, beats, exits, choices and gameplay outcome mappings are all editable as forms.
+The outcome table is what makes a gameplay system reusable: the same `timer.timed_choice`
+can mean different things in different scenes because *where each key leads is data*.
+
+![Outcome mappings](shots/editor-outcomes.png)
 
 Every edit is **all or nothing**: `Editor::apply` either succeeds and leaves a valid
 document, or fails and leaves it byte-for-byte as it was. That is what makes the CLI
@@ -156,7 +167,7 @@ Requires Rust 1.85+ (edition 2024) and, on Windows, the MSVC toolchain.
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 156 tests; render tests skip without a GPU
+cargo test --workspace      # 178 tests; render tests skip without a GPU
 cargo run -p rustory -- probe
 ```
 

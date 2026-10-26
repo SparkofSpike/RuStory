@@ -121,10 +121,35 @@ intermediate, and this ADR should be superseded.
 
 ## Known gaps
 
-- No file picker, no save-as dialog.
-- Gameplay outcome mappings are edited through the CLI only.
-- The preview re-renders on every document change but not on window resize (the logical
-  resolution is fixed, so this is only visible as letterboxing differences).
-- Native-texture display was attempted and abandoned: the texture the engine drew into
-  and the one egui sampled were not the same object. The readback path is slower per
-  edit and reliable. Recorded so nobody re-attempts it without new information.
+- **No recent-files list.** Reopening means going through the dialog again.
+- **The preview does not re-render on window resize.** The logical resolution is fixed,
+  so this only shows up as letterboxing differences.
+- **No colour grading or theme editor.** Layout constants are compiled in; a project that
+  wants a different dialogue box position edits `apps/rustory-editor/src/preview.rs` and
+  `apps/rustory/src/scene.rs`.
+- **Native-texture display was attempted and abandoned.** The texture the engine drew
+  into and the one egui sampled were not the same object, so the panel showed a stale
+  blank frame; a magenta clear colour proved it, because a colour that cannot survive any
+  conversion failing to appear meant the displayed texture was not the drawn one. The
+  readback path is slower per edit and reliable. Recorded so nobody re-attempts it without
+  new information.
+- **A stale `eframe` build cache produced a `windows_sys` version conflict** after `rfd`
+  was added. `cargo clean -p eframe -p egui -p rfd` resolved it; nothing was wrong with the
+  dependency graph itself. Worth knowing because the error message (`found possibly newer
+  version of crate windows_sys`) points at the graph rather than the cache.
+
+## What was added after the first version
+
+Both gaps this ADR originally listed are closed:
+
+- **File dialogs.** New / Open / Save / Save-as, via `rfd`, isolated in `dialogs.rs` so the
+  blocking behaviour is confined and the dependency is replaceable in one file. A new
+  story starts untitled and `save` refuses to invent a path — writing to a guess is how
+  work ends up somewhere the author never looks.
+- **Gameplay outcome mappings.** `SetOutcome` and `DeleteOutcome` joined the operation
+  layer, which means the GUI gained the ability *because the CLI did*: adding the
+  operations first is what kept the two front-ends from diverging.
+
+A close guard was added at the same time. Unsaved work prompts before the window closes
+and before Open or New replaces the document, because losing a scene to a misclick is the
+one failure an editor must not have.

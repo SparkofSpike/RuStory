@@ -130,6 +130,12 @@ before changing one.
 6. **Typewriter text advances by grapheme cluster, never by `char`.**
    `char` splits emoji and combining marks into pieces.
 
+7. **Colours are authored in sRGB and converted to linear exactly once.**
+   The render target is `Bgra8UnormSrgb`, so wgpu encodes whatever it is given. Passing
+   sRGB values means encoding twice: `12` becomes `61` and every dark scene looks
+   washed out. The conversion belongs at the boundary where colours become GPU data,
+   and nowhere else — glyphon already does its own for text.
+
 ---
 
 ## 5. Module map
