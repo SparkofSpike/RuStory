@@ -1,4 +1,4 @@
-﻿//! The panels.
+//! The panels.
 //!
 //! Each function lays out one region and pushes [`EditOp`]s into `app.pending` rather
 //! than touching the story. That is the whole contract: panels describe intent, the
@@ -288,6 +288,116 @@ fn describe_node(node: &rustory_core::Node) -> String {
     format!("{} beat(s), {exit}", node.beats.len())
 }
 
+/// Document-level fields: title, author, and which node the story starts at.
+///
+/// Collapsible, and collapsed by default: authors spend their time in the beat list, and
+/// a form they never touch should not take vertical space from the one they use.
+/// Takes its own field borrows rather than `&mut EditorApp`: the caller holds an
+/// immutable borrow of the document, and taking the whole struct would collide with it.
+fn story_settings(pending: &mut Vec<EditOp>, show: &mut bool, story: &Story, ui: &mut egui::Ui) {
+    let header = ui.horizontal(|ui| {
+        let arrow = if *show { "v" } else { ">" };
+        if ui
+            .button(format!("{arrow} Story"))
+            .on_hover_text("Title, author and start node")
+            .clicked()
+        {
+            *show = !*show;
+        }
+
+        // A one-line summary, so the header says something even when collapsed.
+        let title = story.meta.title.as_deref().unwrap_or("(untitled)");
+        ui.label(egui::RichText::new(title).weak());
+        ui.label(
+            egui::RichText::new(format!("starts at {}", story.start))
+                .small()
+                .weak(),
+        );
+    });
+    let _ = header;
+
+    if !*show {
+        ui.separator();
+        return;
+    }
+
+    ui.group(|ui| {
+        // `Some("")` and `None` are different states: the first is a field being typed
+        // into, the second is "no title". A checkbox controls which, so clearing a field
+        // does not silently delete the key from the file.
+        let mut title = story.meta.title.clone().unwrap_or_default();
+        let mut has_title = story.meta.title.is_some();
+        ui.horizontal(|ui| {
+            if ui.checkbox(&mut has_title, "title").changed() {
+                pending.push(EditOp::SetTitle {
+                    title: if has_title { Some(title.clone()) } else { None },
+                });
+            }
+            if has_title
+                && ui
+                    .add(
+                        egui::TextEdit::singleline(&mut title)
+                            .desired_width(320.0)
+                            .hint_text("story title"),
+                    )
+                    .changed()
+            {
+                pending.push(EditOp::SetTitle {
+                    title: Some(title.clone()),
+                });
+            }
+        });
+
+        let mut author = story.meta.author.clone().unwrap_or_default();
+        let mut has_author = story.meta.author.is_some();
+        ui.horizontal(|ui| {
+            if ui.checkbox(&mut has_author, "author").changed() {
+                pending.push(EditOp::SetAuthor {
+                    author: if has_author {
+                        Some(author.clone())
+                    } else {
+                        None
+                    },
+                });
+            }
+            if has_author
+                && ui
+                    .add(
+                        egui::TextEdit::singleline(&mut author)
+                            .desired_width(320.0)
+                            .hint_text("author"),
+                    )
+                    .changed()
+            {
+                pending.push(EditOp::SetAuthor {
+                    author: Some(author.clone()),
+                });
+            }
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("start node");
+            let mut start = story.start.to_string();
+            let ids: Vec<String> = story.nodes.keys().map(|id| id.to_string()).collect();
+            egui::ComboBox::from_id_salt("story start")
+                .selected_text(&start)
+                .show_ui(ui, |ui| {
+                    for id in &ids {
+                        if ui.selectable_value(&mut start, id.clone(), id).clicked()
+                            && start != story.start.to_string()
+                        {
+                            pending.push(EditOp::SetStartNode {
+                                node: NodeId::from(start.clone()),
+                            });
+                        }
+                    }
+                });
+        });
+    });
+
+    ui.separator();
+}
+
 /// Beat list and exit editor for the selected node.
 pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
     egui::CentralPanel::default().show(ui, |ui| {
@@ -312,6 +422,20 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
         ui.separator();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
+            // --- story settings ---
+            //
+            // `SetTitle` and `SetAuthor` existed as operations before they had a control
+            // here, which meant the CLI could do something the GUI could not — the exact
+            // drift the operation layer is supposed to make impossible. A periodic audit
+            // that greps for each `EditOp` variant in the editor source is what caught it;
+            // doing that by eye would not have.
+            story_settings(
+                &mut app.pending,
+                &mut app.show_story_settings,
+                editor.story(),
+                ui,
+            );
+
             // --- beats ---
             ui.label("Beats");
             let beat_count = node.beats.len();

@@ -1,4 +1,4 @@
-﻿//! Application state and the frame loop.
+//! Application state and the frame loop.
 //!
 //! # The one rule
 //!
@@ -50,6 +50,8 @@ pub struct EditorApp {
     /// Buffer for a new gameplay outcome key, so the field can hold text that is not
     /// yet a valid key.
     pub new_outcome: String,
+    /// Whether the story settings form is expanded.
+    pub show_story_settings: bool,
     /// How many interactions the preview has applied. The preview is a real
     /// `Narrative`, so this is a genuine position in the story rather than a slide.
     pub preview_step: usize,
@@ -81,6 +83,7 @@ impl EditorApp {
             new_node_id: String::new(),
             rename_buffer: String::new(),
             new_outcome: String::new(),
+            show_story_settings: false,
             preview_step: 0,
             preview: Preview::new(),
             assets: AssetPaths::from_cwd(),
