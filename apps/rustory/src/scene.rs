@@ -215,13 +215,25 @@ impl Scene<'_> {
         let Some(prompt) = self.gameplay_prompt else {
             return;
         };
-        // Two lines: the question and the numbered options beneath it.
-        let plate = Rect::new(60.0, 48.0, WIDTH as f32 - 120.0, 104.0);
+        // While a gameplay system has control there is no dialogue on screen, so
+        // the prompt takes the space the dialogue box would occupy. Putting it at
+        // the top instead would cover the sprites' heads, which is where the
+        // player is looking.
+        let plate = Rect::new(
+            DIALOGUE_BOX.x,
+            DIALOGUE_BOX.y,
+            DIALOGUE_BOX.width,
+            DIALOGUE_BOX.height,
+        );
         frame.push_quad(Quad::solid(plate, COL_CHOICE));
+        frame.push_quad(Quad::solid(
+            Rect::new(plate.x, plate.y, plate.width, 2.0),
+            COL_CHOICE_EDGE,
+        ));
         frame.push_text(
-            TextItem::new(prompt, plate.x + 24.0, plate.y + 16.0, 26.0)
+            TextItem::new(prompt, plate.x + 32.0, plate.y + 28.0, 28.0)
                 .with_color(COL_TEXT)
-                .with_wrap(plate.width - 48.0),
+                .with_wrap(plate.width - 64.0),
         );
     }
 
