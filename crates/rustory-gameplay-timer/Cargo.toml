@@ -1,0 +1,13 @@
+[package]
+name = "rustory-gameplay-timer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "RuStory gameplay system: a timed choice. Proves that a gameplay system can be added without touching the narrative core."
+
+[dependencies]
+rustory-core = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+thiserror = { workspace = true }

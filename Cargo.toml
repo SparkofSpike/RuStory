@@ -4,6 +4,7 @@ members = [
     "crates/rustory-core",
     "crates/rustory-script",
     "crates/rustory-render",
+    "crates/rustory-gameplay-timer",
     "apps/rustory",
 ]
 
@@ -19,6 +20,7 @@ description = "RuStory — Rust-native visual novel engine with composable gamep
 rustory-core = { path = "crates/rustory-core" }
 rustory-script = { path = "crates/rustory-script" }
 rustory-render = { path = "crates/rustory-render" }
+rustory-gameplay-timer = { path = "crates/rustory-gameplay-timer" }
 
 serde = { version = "1", features = ["derive"] }
 ron = "0.11"

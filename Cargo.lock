@@ -1749,6 +1749,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustory-gameplay-timer"
+version = "0.1.0"
+dependencies = [
+ "ron",
+ "rustory-core",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "rustory-render"
 version = "0.1.0"
 dependencies = [
