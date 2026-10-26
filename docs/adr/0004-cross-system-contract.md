@@ -89,8 +89,12 @@ pub struct Stats { values: BTreeMap<String, i32> }
 - 玩法间共享状态必须走 `Stats` 的字符串键，失去编译期拼写检查。
   缓解：键名集中定义（`timed_choice.attempts`、`timed_choice.correct` 这类
   带命名空间的常量）。
-- 事件队列需要调用方主动 `take_events()`，忘记取会堆积。
-  缓解：目前只有渲染器和日志用，且都每帧取一次。
+- 事件队列需要调用方主动 `take_events()`。**目前没有任何生产代码调用它**——
+  渲染器每帧从 `Narrative` 重读状态，不需要事件；窗口模式和 CLI 也都没订阅。
+  因此队列自带上限（`MAX_PENDING_EVENTS = 256`，超出丢最旧），
+  否则长时间运行会按 beat 数泄漏内存。
+  将来出现真实消费者（音效、成就、日志）时，它应当每帧 drain，
+  届时上限不会触发。
 
 **已知缺口（记入待决问题）**
 

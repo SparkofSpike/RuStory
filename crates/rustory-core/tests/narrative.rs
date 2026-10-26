@@ -621,3 +621,57 @@ fn a_single_node_cannot_exceed_the_traversal_bound() {
         "unexpected error: {err}"
     );
 }
+
+#[test]
+fn undrained_events_do_not_grow_without_bound() {
+    // Nothing drains events in the shipping application, so the queue has to
+    // bound itself. Without this, a long session leaks memory one event per beat.
+    let mut beats: Vec<Beat> = (0..50)
+        .map(|index| Beat::ShowActor {
+            actor: ActorId::from(format!("actor{index}")),
+            pose: "idle".into(),
+            slot: Slot::Center,
+        })
+        .collect();
+    beats.push(say("done"));
+
+    let narrative = Narrative::new(make_story(
+        vec![("only", Node { beats, exit: end() })],
+        "only",
+    ))
+    .expect("story is valid");
+
+    assert!(
+        narrative.pending_event_count() <= 256,
+        "expected the queue to stay bounded, found {} events",
+        narrative.pending_event_count()
+    );
+    assert!(
+        narrative.pending_event_count() > 0,
+        "events should still be recorded for a real consumer to drain"
+    );
+}
+
+#[test]
+fn draining_events_empties_the_queue() {
+    let mut narrative = Narrative::new(make_story(
+        vec![(
+            "only",
+            Node {
+                beats: vec![say("hello")],
+                exit: end(),
+            },
+        )],
+        "only",
+    ))
+    .expect("story is valid");
+
+    assert!(narrative.pending_event_count() > 0);
+    let events = narrative.take_events();
+    assert!(!events.is_empty());
+    assert_eq!(
+        narrative.pending_event_count(),
+        0,
+        "take_events must empty the queue, not copy it"
+    );
+}

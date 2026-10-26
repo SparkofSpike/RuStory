@@ -47,6 +47,14 @@ use crate::story::{Beat, Choice, Exit, GameplaySpec, Node, Story};
 /// happens instead of a frozen window.
 const MAX_BEATS_PER_CALL: usize = 1024;
 
+/// How many undrained events are kept before the oldest is dropped.
+///
+/// Nothing in this repository drains events yet - the renderer rebuilds its frame
+/// from state each tick and does not need them - so an unbounded queue would grow
+/// for the lifetime of the process. When a real consumer appears (audio cues,
+/// achievements, a log), it will drain every frame and never reach this bound.
+const MAX_PENDING_EVENTS: usize = 256;
+
 /// What the machine is waiting for.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Mode {
@@ -170,8 +178,20 @@ impl Narrative {
     }
 
     /// Drain accumulated events.
+    ///
+    /// Callers that do not drain are safe: the queue is bounded at
+    /// [`MAX_PENDING_EVENTS`] and drops its oldest entries, because an
+    /// unbounded queue would be a memory leak in any long session. Events are
+    /// for live consumers reacting now, so a stale one has no value.
     pub fn take_events(&mut self) -> Vec<NarrativeEvent> {
         std::mem::take(&mut self.events)
+    }
+
+    /// How many events are waiting. Exposed so a caller can decide whether to
+    /// drain without doing it.
+    #[must_use]
+    pub fn pending_event_count(&self) -> usize {
+        self.events.len()
     }
 
     /// Advance the typewriter.
@@ -206,7 +226,7 @@ impl Narrative {
                 Some(Beat::Say { speaker, .. }) => speaker.clone(),
                 _ => None,
             };
-            self.events.push(NarrativeEvent::LineCompleted { speaker });
+            self.push_event(NarrativeEvent::LineCompleted { speaker });
         }
 
         report.revealed = self.revealed;
@@ -229,7 +249,7 @@ impl Narrative {
                     Some(Beat::Say { speaker, .. }) => speaker.clone(),
                     _ => None,
                 };
-                self.events.push(NarrativeEvent::LineCompleted { speaker });
+                self.push_event(NarrativeEvent::LineCompleted { speaker });
             }
             Mode::AwaitingAdvance => {
                 self.beat_index += 1;
@@ -259,7 +279,7 @@ impl Narrative {
         };
 
         let target = choice.to.clone();
-        self.events.push(NarrativeEvent::ChoiceTaken {
+        self.push_event(NarrativeEvent::ChoiceTaken {
             node: self.cursor.clone(),
             index,
         });
@@ -338,13 +358,22 @@ impl Narrative {
             });
         };
         let target = target.clone();
-        self.events.push(NarrativeEvent::GameplayFinished {
+        self.push_event(NarrativeEvent::GameplayFinished {
             node: self.cursor.clone(),
             system: system.clone(),
             outcome,
         });
         self.gameplay_begun = false;
         self.enter_node(target)
+    }
+
+    fn push_event(&mut self, event: NarrativeEvent) {
+        // Drop the oldest rather than the newest: a consumer that wakes up late
+        // cares about what just happened, not about what it already missed.
+        if self.events.len() >= MAX_PENDING_EVENTS {
+            self.events.remove(0);
+        }
+        self.events.push(event);
     }
 
     fn enter_node(&mut self, id: NodeId) -> Result<(), CoreError> {
@@ -359,7 +388,7 @@ impl Narrative {
         self.reveal_accum_ms = 0.0;
         self.revealed = 0;
         self.gameplay_begun = false;
-        self.events.push(NarrativeEvent::NodeEntered { node: id });
+        self.push_event(NarrativeEvent::NodeEntered { node: id });
         self.run_until_wait()
     }
 
@@ -395,7 +424,7 @@ impl Narrative {
                         self.stage.apply(&Beat::HideActor {
                             actor: actor.clone(),
                         });
-                        self.events.push(NarrativeEvent::ActorHidden { actor });
+                        self.push_event(NarrativeEvent::ActorHidden { actor });
                         self.beat_index += 1;
                     }
                     Beat::SetBackground { image } => {
@@ -419,7 +448,7 @@ impl Narrative {
                     self.mode = Mode::Finished {
                         ending: ending.clone(),
                     };
-                    self.events.push(NarrativeEvent::StoryEnded { ending });
+                    self.push_event(NarrativeEvent::StoryEnded { ending });
                     return Ok(());
                 }
                 Exit::Goto { to } => {
@@ -427,12 +456,12 @@ impl Narrative {
                     self.beat_index = 0;
                     self.reveal_accum_ms = 0.0;
                     self.revealed = 0;
-                    self.events.push(NarrativeEvent::NodeEntered {
+                    self.push_event(NarrativeEvent::NodeEntered {
                         node: self.cursor.clone(),
                     });
                 }
                 Exit::Choose { prompt, choices } => {
-                    self.events.push(NarrativeEvent::ChoiceOffered {
+                    self.push_event(NarrativeEvent::ChoiceOffered {
                         node: self.cursor.clone(),
                         labels: choices.iter().map(|c| c.label.clone()).collect(),
                     });
@@ -440,7 +469,7 @@ impl Narrative {
                     return Ok(());
                 }
                 Exit::Gameplay { spec } => {
-                    self.events.push(NarrativeEvent::GameplayStarted {
+                    self.push_event(NarrativeEvent::GameplayStarted {
                         node: self.cursor.clone(),
                         system: spec.system.clone(),
                     });

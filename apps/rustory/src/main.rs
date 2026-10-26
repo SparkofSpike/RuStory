@@ -3,6 +3,8 @@
 //! The CLI stays small on purpose: the engine is the deliverable, and a CLI that
 //! grows into a build system would distract from it.
 
+#![forbid(unsafe_code)]
+
 mod assets;
 mod driver;
 mod play;
