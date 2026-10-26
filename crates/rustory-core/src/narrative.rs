@@ -30,12 +30,14 @@
 //! assert!(matches!(narrative.mode(), Mode::Revealing));
 //! ```
 
+use serde::{Deserialize, Serialize};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::error::CoreError;
 use crate::event::{NarrativeEvent, TickReport};
 use crate::gameplay::{GameplayContext, GameplayInput, GameplayRegistry, Stats};
 use crate::ids::{ActorId, NodeId, OutcomeKey, SystemId};
+use crate::save::{GameplaySave, SAVE_VERSION, SaveState};
 use crate::stage::Stage;
 use crate::story::{Beat, Choice, Exit, GameplaySpec, Node, Story};
 
@@ -56,7 +58,10 @@ const MAX_BEATS_PER_CALL: usize = 1024;
 const MAX_PENDING_EVENTS: usize = 256;
 
 /// What the machine is waiting for.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// `Serialize`/`Deserialize` exist for saving: a resume has to know whether the
+/// player was mid-line, staring at a choice, or inside a gameplay system.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Mode {
     /// A line is being revealed character by character.
     Revealing,
@@ -119,6 +124,149 @@ impl Narrative {
             events: Vec::new(),
         };
         narrative.enter_node(start)?;
+        Ok(narrative)
+    }
+
+    // --- saving and loading ----------------------------------------------
+
+    /// Capture everything needed to resume this session.
+    ///
+    /// The registry is consulted only when a gameplay system currently holds
+    /// control, because only then is there state the narrative cannot rebuild.
+    pub fn save(&self, registry: &GameplayRegistry) -> Result<SaveState, CoreError> {
+        let gameplay = match &self.mode {
+            Mode::Suspended { spec } => {
+                let system =
+                    registry
+                        .get(&spec.system)
+                        .ok_or_else(|| CoreError::UnknownGameplaySystem {
+                            node: self.cursor.to_string(),
+                            system: spec.system.to_string(),
+                        })?;
+                Some(GameplaySave {
+                    system: spec.system.clone(),
+                    state: system.save()?,
+                })
+            }
+            _ => None,
+        };
+
+        Ok(SaveState {
+            version: SAVE_VERSION,
+            story_checksum: self.story.checksum(),
+            cursor: self.cursor.clone(),
+            beat_index: self.beat_index,
+            mode: self.mode.clone(),
+            revealed: self.revealed,
+            stage: self.stage.clone(),
+            stats: self.stats.clone(),
+            gameplay,
+        })
+    }
+
+    /// Rebuild a session from a save.
+    ///
+    /// Every check below exists because the alternative is a silent mis-restore:
+    /// resuming in the wrong scene, mid-beat, with someone else's counters, and no
+    /// way for the player to tell what went wrong. A refused load is recoverable;
+    /// a corrupted one looks like an engine bug.
+    ///
+    /// No [`NarrativeEvent`]s are produced: loading is a restore, not a traversal,
+    /// and a renderer replaying node-entry events would redraw a scene the player
+    /// is already looking at.
+    pub fn from_save(
+        story: Story,
+        save: &SaveState,
+        registry: &mut GameplayRegistry,
+    ) -> Result<Self, CoreError> {
+        if save.version != SAVE_VERSION {
+            return Err(CoreError::SaveVersionMismatch {
+                found: save.version,
+                expected: SAVE_VERSION,
+            });
+        }
+
+        story.validate()?;
+        let expected = story.checksum();
+        if save.story_checksum != expected {
+            return Err(CoreError::SaveStoryMismatch {
+                found: save.story_checksum,
+                expected,
+            });
+        }
+
+        let node = story
+            .node(&save.cursor)
+            .ok_or_else(|| CoreError::SaveNodeMissing {
+                node: save.cursor.to_string(),
+            })?;
+
+        if save.beat_index > node.beats.len() {
+            return Err(CoreError::SaveBeatOutOfRange {
+                node: save.cursor.to_string(),
+                index: save.beat_index,
+                count: node.beats.len(),
+            });
+        }
+
+        check_position(save, node)?;
+
+        let mut narrative = Self {
+            story,
+            stage: save.stage.clone(),
+            stats: save.stats.clone(),
+            cursor: save.cursor.clone(),
+            beat_index: save.beat_index,
+            mode: save.mode.clone(),
+            reveal_accum_ms: 0.0,
+            revealed: save.revealed,
+            gameplay_begun: false,
+            events: Vec::new(),
+        };
+
+        // A save may carry a reveal count from a line that was edited since. Clamp
+        // rather than reject: the worst case is a line showing slightly less than
+        // it did before, which the player cannot distinguish from a slow reveal.
+        if let Some(line) = narrative.line() {
+            let total = line.full_text.graphemes(true).count();
+            narrative.revealed = narrative.revealed.min(total);
+        } else {
+            narrative.revealed = 0;
+        }
+
+        match (&save.mode, save.gameplay.as_ref()) {
+            (Mode::Suspended { spec }, Some(saved)) => {
+                let system = registry.get_mut(&spec.system).ok_or_else(|| {
+                    CoreError::UnknownGameplaySystem {
+                        node: save.cursor.to_string(),
+                        system: spec.system.to_string(),
+                    }
+                })?;
+
+                // `begin` first so config-derived invariants hold, then `restore`
+                // for whatever changed during play.
+                system.begin(spec.config.as_ref())?;
+                system.restore(saved.state.as_ref())?;
+                narrative.gameplay_begun = true;
+            }
+            (Mode::Suspended { spec }, None) => {
+                return Err(CoreError::GameplayRestoreFailed {
+                    system: spec.system.to_string(),
+                    message: "save is suspended in gameplay but carries no gameplay state"
+                        .to_owned(),
+                });
+            }
+            (_, Some(saved)) => {
+                // State without a suspension means the file was edited by hand or
+                // written by a different build. Either way it cannot be trusted.
+                return Err(CoreError::GameplayRestoreFailed {
+                    system: saved.system.to_string(),
+                    message: "save carries gameplay state but its mode is not suspended".to_owned(),
+                });
+            }
+            (_, None) => {}
+        }
+
         Ok(narrative)
     }
 
@@ -484,4 +632,51 @@ impl Narrative {
             limit: MAX_BEATS_PER_CALL,
         })
     }
+}
+
+/// Reject a mode that does not fit the saved position.
+///
+/// A save can be hand-edited, or produced by a build whose script has since been
+/// replaced with one that happens to hash the same (only possible with a
+/// deliberate collision). Neither should be able to put the machine into a state
+/// it has no transition out of, so the pairing of mode, beat index and node exit is
+/// checked explicitly.
+fn check_position(save: &SaveState, node: &Node) -> Result<(), CoreError> {
+    let out_of_range = || CoreError::SaveBeatOutOfRange {
+        node: save.cursor.to_string(),
+        index: save.beat_index,
+        count: node.beats.len(),
+    };
+
+    let at_end = save.beat_index == node.beats.len();
+
+    let fits = match &save.mode {
+        // Both of these need a line under the cursor to act on.
+        Mode::Revealing | Mode::AwaitingAdvance => {
+            !at_end && matches!(node.beats.get(save.beat_index), Some(Beat::Say { .. }))
+        }
+        // These three only happen once the beats are exhausted, so the node must
+        // be sitting on its exit.
+        Mode::AwaitingChoice { .. } => at_end && matches!(node.exit, Exit::Choose { .. }),
+        Mode::Finished { .. } => at_end && matches!(node.exit, Exit::End { .. }),
+        Mode::Suspended { spec } => match &node.exit {
+            Exit::Gameplay { spec: expected } if expected.system == spec.system => at_end,
+            Exit::Gameplay { spec: expected } => {
+                return Err(CoreError::SaveGameplayMismatch {
+                    node: save.cursor.to_string(),
+                    saved: spec.system.to_string(),
+                    current: expected.system.to_string(),
+                });
+            }
+            _ => {
+                return Err(CoreError::SaveGameplayMismatch {
+                    node: save.cursor.to_string(),
+                    saved: spec.system.to_string(),
+                    current: "(this node has no gameplay exit)".to_owned(),
+                });
+            }
+        },
+    };
+
+    if fits { Ok(()) } else { Err(out_of_range()) }
 }

@@ -62,14 +62,19 @@ mod event;
 mod gameplay;
 mod ids;
 mod narrative;
+mod save;
 mod stage;
 mod story;
 
 pub use error::CoreError;
 pub use event::{NarrativeEvent, TickReport};
-pub use gameplay::{GameplayContext, GameplayInput, GameplayRegistry, GameplaySystem, Stats};
+pub use gameplay::{
+    GameplayContext, GameplayInput, GameplayRegistry, GameplaySystem, Stats, decode_state,
+    encode_state,
+};
 pub use ids::{ActorId, NodeId, OutcomeKey, SystemId};
 pub use narrative::{LineView, Mode, Narrative};
+pub use save::{GameplaySave, SAVE_VERSION, SaveState};
 pub use stage::{ActorOnStage, Stage};
 pub use story::{Beat, Choice, Exit, GameplaySpec, Node, Slot, Story, StoryMeta};
 
@@ -77,7 +82,8 @@ pub use story::{Beat, Choice, Exit, GameplaySpec, Node, Slot, Story, StoryMeta};
 pub mod prelude {
     pub use crate::{
         ActorId, Beat, Choice, CoreError, Exit, GameplayContext, GameplayInput, GameplayRegistry,
-        GameplaySpec, GameplaySystem, LineView, Mode, Narrative, NarrativeEvent, Node, NodeId,
-        OutcomeKey, Slot, Stage, Stats, Story, StoryMeta, SystemId, TickReport,
+        GameplaySave, GameplaySpec, GameplaySystem, LineView, Mode, Narrative, NarrativeEvent,
+        Node, NodeId, OutcomeKey, SAVE_VERSION, SaveState, Slot, Stage, Stats, Story, StoryMeta,
+        SystemId, TickReport, decode_state, encode_state,
     };
 }

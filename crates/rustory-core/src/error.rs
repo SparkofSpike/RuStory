@@ -39,6 +39,43 @@ pub enum CoreError {
     #[error("gameplay system `{system}` failed: {message}")]
     GameplayFailed { system: String, message: String },
 
+    #[error("gameplay system `{system}` could not save its state: {message}")]
+    GameplaySaveFailed { system: String, message: String },
+
+    #[error("gameplay system `{system}` could not restore its state: {message}")]
+    GameplayRestoreFailed { system: String, message: String },
+
+    #[error(
+        "save format version {found} is not supported (this build writes and reads version {expected})"
+    )]
+    SaveVersionMismatch { found: u32, expected: u32 },
+
+    #[error(
+        "save was written for a different story (checksum {found:#x}, this story is {expected:#x})"
+    )]
+    SaveStoryMismatch { found: u64, expected: u64 },
+
+    #[error("save refers to node `{node}`, which this story no longer has")]
+    SaveNodeMissing { node: String },
+
+    #[error(
+        "save places the cursor at beat {index} of node `{node}`, which has only {count} beats"
+    )]
+    SaveBeatOutOfRange {
+        node: String,
+        index: usize,
+        count: usize,
+    },
+
+    #[error(
+        "save is suspended inside gameplay system `{saved}`, but node `{node}` now hands over to `{current}`"
+    )]
+    SaveGameplayMismatch {
+        node: String,
+        saved: String,
+        current: String,
+    },
+
     #[error("node `{node}` ran more than {limit} beats without waiting for the player")]
     EndlessFlow { node: String, limit: usize },
 }

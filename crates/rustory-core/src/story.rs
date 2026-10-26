@@ -181,4 +181,31 @@ impl Story {
     pub fn beat_count(&self) -> usize {
         self.nodes.values().map(|node| node.beats.len()).sum()
     }
+
+    /// A stable fingerprint of the story's content.
+    ///
+    /// Saves record this so loading an old save against an edited script fails
+    /// loudly instead of resuming at a node whose beats have shifted under the
+    /// player. FNV-1a over the RON form: `BTreeMap` iterates in key order, so the
+    /// same story always hashes the same, across processes and compilations.
+    ///
+    /// This is a change detector, not a security primitive. Nothing here defends
+    /// against a deliberately crafted collision; a save file is the player's own
+    /// data.
+    #[must_use]
+    pub fn checksum(&self) -> u64 {
+        // RON can only fail on types it cannot represent, and this type is plain
+        // data. Falling back to zero would silently disable the check, so a
+        // failure is surfaced as a checksum that can never match a real one.
+        let Ok(encoded) = ron::to_string(self) else {
+            return u64::MAX;
+        };
+
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for byte in encoded.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        hash
+    }
 }

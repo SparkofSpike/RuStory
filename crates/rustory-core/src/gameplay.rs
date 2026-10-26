@@ -24,6 +24,8 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::error::CoreError;
 use crate::ids::{OutcomeKey, SystemId};
 
@@ -33,7 +35,10 @@ use crate::ids::{OutcomeKey, SystemId};
 /// Keyed by string because different stories invent different attributes, but the
 /// value type is fixed — a bag of `Any` here would be the exact dynamic-shape
 /// improvisation this project exists to avoid.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// Serialised as a plain map so a save file stays readable and hand-editable.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Stats {
     values: BTreeMap<String, i32>,
 }
@@ -115,6 +120,65 @@ pub trait GameplaySystem {
     fn prompt(&self) -> Option<String> {
         None
     }
+
+    /// Serialise the state that cannot be reconstructed from config alone.
+    ///
+    /// Returning `None` means "stateless": nothing is written to the save, and
+    /// after a load the system is rebuilt by [`GameplaySystem::begin`]. That is
+    /// correct for a system whose progress lives entirely in [`Stats`], such as a
+    /// countdown derived from an `elapsed_ms` counter.
+    ///
+    /// Return `Some` for anything `begin` could not re-derive: a shuffled deck, a
+    /// generated board, a sequence of inputs already accepted. Getting this wrong
+    /// does not fail loudly — the save simply resumes with a fresh system — so
+    /// the rule is: if `begin` cannot reproduce it, it belongs in here.
+    ///
+    /// The returned value is stored verbatim in the save file. Systems written by
+    /// third parties choose their own format inside it; the core never looks.
+    fn save(&self) -> Result<Option<ron::Value>, CoreError> {
+        Ok(None)
+    }
+
+    /// Restore state previously produced by [`GameplaySystem::save`].
+    ///
+    /// Called immediately after [`GameplaySystem::begin`] during a load, so the
+    /// config is already parsed and invariant state is established. Only the parts
+    /// that change during play belong in here.
+    ///
+    /// The default implementation accepts `None` and **rejects** `Some`: if a save
+    /// carries state for a system that never learned to restore it, the save and
+    /// the code disagree, and resuming with silently discarded state is worse than
+    /// refusing. Implement this method to accept state.
+    fn restore(&mut self, state: Option<&ron::Value>) -> Result<(), CoreError> {
+        match state {
+            None => Ok(()),
+            Some(_) => Err(CoreError::GameplayRestoreFailed {
+                system: self.id().to_string(),
+                message:
+                    "this system does not implement restore, but the save carries state for it"
+                        .to_owned(),
+            }),
+        }
+    }
+}
+
+/// Encode a system's dynamic state into the opaque blob a save stores.
+///
+/// Exists because `ron` 0.11 has no `to_value`: turning a struct into a
+/// [`ron::Value`] means going through its text form. Doing that here keeps every
+/// gameplay implementation from repeating the same two-line dance, and keeps the
+/// quirk in one place if a later `ron` grows the direct API.
+///
+/// Errors are plain strings so callers can wrap them in
+/// [`CoreError::GameplaySaveFailed`] with their own system id.
+pub fn encode_state<T: Serialize>(state: &T) -> Result<ron::Value, String> {
+    let text = ron::to_string(state).map_err(|err| err.to_string())?;
+    ron::from_str(&text).map_err(|err| err.to_string())
+}
+
+/// Decode state produced by [`encode_state`].
+pub fn decode_state<T: serde::de::DeserializeOwned>(state: &ron::Value) -> Result<T, String> {
+    state.clone().into_rust().map_err(|err| err.to_string())
 }
 
 /// The set of systems available to a running story.
@@ -149,6 +213,12 @@ impl GameplayRegistry {
 
     pub(crate) fn get_mut(&mut self, id: &SystemId) -> Option<&mut Box<dyn GameplaySystem>> {
         self.systems.get_mut(id)
+    }
+
+    /// Read-only lookup, used when saving to ask a suspended system for its state.
+    #[must_use]
+    pub fn get(&self, id: &SystemId) -> Option<&dyn GameplaySystem> {
+        self.systems.get(id).map(AsRef::as_ref)
     }
 
     /// Read-only prompt lookup, for presentation.
