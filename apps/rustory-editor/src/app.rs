@@ -16,7 +16,7 @@
 //! the filesystem and to dialogs. Keeping them separate from `EditOp` means the
 //! operation layer stays free of I/O policy.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rustory_core::NodeId;
 use rustory_edit::Editor;
@@ -25,17 +25,22 @@ use rustory_edit::prelude::*;
 use crate::dialogs;
 use crate::panels;
 use crate::preview::{AssetPaths, Preview};
+use crate::recent::RecentFiles;
 
 /// A file-level request from the UI.
 ///
 /// Deferred rather than executed inline so it can be handled after the panels stop
 /// borrowing the document — the same reason edits are deferred.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UiAction {
     Open,
+    /// Open one specific file, from the recent list.
+    OpenAt(PathBuf),
     New,
     Save,
     SaveAs,
+    /// Empty the recent list.
+    ClearRecent,
 }
 
 pub struct EditorApp {
@@ -73,6 +78,10 @@ pub struct EditorApp {
 
     /// Set while the close guard is deciding whether a close may proceed.
     pub close_confirmed: bool,
+
+    /// Files opened recently, newest first. Persisted between runs so a person who
+    /// edits one chapter every evening does not have to find it in a dialog again.
+    pub recent: RecentFiles,
 }
 
 impl EditorApp {
@@ -93,7 +102,14 @@ impl EditorApp {
             pending: Vec::new(),
             pending_actions: Vec::new(),
             close_confirmed: false,
+            recent: RecentFiles::load(),
         };
+
+        // A list that mentions files deleted outside the editor is worse than a short
+        // one: every entry in the menu has to be a file that opens.
+        if app.recent.prune() {
+            let _ = app.recent.save();
+        }
 
         app.preview.ensure_ready(cc);
 
@@ -126,9 +142,27 @@ impl EditorApp {
                 // Art is looked up beside the story, not beside the process. Opening a
                 // project from a different directory must not silently lose its images.
                 self.assets = AssetPaths::beside(&path);
+                self.remember(&path);
                 self.set_status(format!("Opened {}", path.display()), false);
             }
-            Err(err) => self.set_status(err.to_string(), true),
+            Err(err) => {
+                // A listed file that is gone is a stale entry, not a mystery: drop it so
+                // the next attempt is not made at the same ghost.
+                if self.recent.forget(&path) {
+                    let _ = self.recent.save();
+                }
+                self.set_status(err.to_string(), true);
+            }
+        }
+    }
+
+    /// Add a path to the recent list and persist the change.
+    ///
+    /// A write failure does not deserve a dialog: the menu still works for this session,
+    /// and the next save tries the same directory again.
+    fn remember(&mut self, path: &Path) {
+        if self.recent.record(path) {
+            let _ = self.recent.save();
         }
     }
 
@@ -237,9 +271,16 @@ impl EditorApp {
                     self.open_path(path);
                 }
             }
+            UiAction::OpenAt(path) => self.open_path(path),
             UiAction::New => self.new_story(),
             UiAction::Save => self.save(),
             UiAction::SaveAs => self.save_as(),
+            UiAction::ClearRecent => {
+                if self.recent.clear() {
+                    let _ = self.recent.save();
+                }
+                self.set_status("Cleared the recent list", false);
+            }
         }
     }
 
@@ -283,6 +324,7 @@ impl EditorApp {
                 // The assets move with the story: saving a chapter into a project
                 // directory should look for that project's art.
                 self.assets = AssetPaths::beside(&path);
+                self.remember(&path);
                 self.set_status(format!("Saved {}", path.display()), false);
             }
             Err(err) => self.set_status(err.to_string(), true),

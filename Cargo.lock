@@ -2566,6 +2566,7 @@ dependencies = [
  "rustory-gameplay-timer",
  "rustory-render",
  "rustory-script",
+ "serde",
  "serde_json",
  "wgpu",
 ]

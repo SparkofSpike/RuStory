@@ -37,6 +37,41 @@ pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
                 app.pending_actions.push(UiAction::Open);
             }
 
+            // The recent list sits next to Open because it answers the same question —
+            // "which story?" — with one click instead of a dialog.
+            let recent = app.recent.paths().to_vec();
+            ui.menu_button("Recent", |ui| {
+                // Without a floor the menu shrinks to the longest button, which puts the
+                // text hard against the edge and makes the whole list look like an
+                // afterthought next to the other buttons.
+                ui.set_min_width(240.0);
+                if recent.is_empty() {
+                    ui.weak("No recent stories yet");
+                }
+                for path in &recent {
+                    let name = path.file_name().map_or_else(
+                        || path.display().to_string(),
+                        |name| name.to_string_lossy().into_owned(),
+                    );
+                    // Hover shows the directory: two chapters can share a file name.
+                    if ui
+                        .button(name)
+                        .on_hover_text(path.display().to_string())
+                        .clicked()
+                    {
+                        app.pending_actions.push(UiAction::OpenAt(path.clone()));
+                        ui.close();
+                    }
+                }
+                if !recent.is_empty() {
+                    ui.separator();
+                    if ui.button("Clear list").clicked() {
+                        app.pending_actions.push(UiAction::ClearRecent);
+                        ui.close();
+                    }
+                }
+            });
+
             ui.add_enabled_ui(has_doc, |ui| {
                 if ui.button("Save").on_hover_text("Save (Ctrl+S)").clicked() {
                     app.pending_actions.push(UiAction::Save);

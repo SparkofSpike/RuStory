@@ -80,7 +80,19 @@ $ cargo run -p rustory -- edit stories/demo.ron --op '{"op":"CreateNode","id":"e
 
 The editor is a normal desktop application: **New / Open / Save / Save as** with
 `Ctrl+N`, `Ctrl+O`, `Ctrl+S`, `Ctrl+Shift+S`, undo and redo on `Ctrl+Z` / `Ctrl+Y`, and a
-prompt before anything throws away unsaved work.
+prompt before anything throws away unsaved work. **Recent** keeps the last ten stories one
+click away, and the same list is readable from a terminal — an agent can ask what the user
+has been editing without opening a window:
+
+```console
+$ cargo run -p rustory-editor -- --recent          # one path per line
+$ cargo run -p rustory-editor -- --recent --json   # same list, structured
+```
+
+The list lives in `%APPDATA%\rustory\recent.json` (`$XDG_CONFIG_HOME/rustory` elsewhere)
+and is pruned on startup: an entry that no longer opens is dropped rather than offered.
+
+![Recent files](shots/editor-recent.png)
 
 Nodes, beats, exits, choices and gameplay outcome mappings are all editable as forms.
 The outcome table is what makes a gameplay system reusable: the same `timer.timed_choice`

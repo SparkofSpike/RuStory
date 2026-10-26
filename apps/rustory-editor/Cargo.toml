@@ -20,5 +20,6 @@ rustory-gameplay-quiz = { workspace = true }
 eframe = { workspace = true }
 egui = { workspace = true }
 wgpu = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 rfd = { workspace = true }

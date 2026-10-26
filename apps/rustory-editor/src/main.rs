@@ -31,6 +31,7 @@ mod dialogs;
 mod outcomes;
 mod panels;
 mod preview;
+mod recent;
 
 use std::path::PathBuf;
 
@@ -42,6 +43,8 @@ USAGE:
     rustory-editor --check <story.ron>    Render one preview frame and report
         --step <n>      interactions to advance before rendering (default: 0)
         --out <file>    write the frame as a PNG
+    rustory-editor --recent               List recent stories, newest first
+        --json          print as JSON instead of one path per line
 ";
 
 fn main() -> eframe::Result<()> {
@@ -56,6 +59,12 @@ fn main() -> eframe::Result<()> {
     // in CI where there is no display.
     if args.iter().any(|arg| arg == "--check") {
         std::process::exit(run_check(&args));
+    }
+
+    // `--recent` is terminal too. An agent asking "what has the user been editing?"
+    // should not need a display server to find out.
+    if args.iter().any(|arg| arg == "--recent") {
+        std::process::exit(run_recent(&args));
     }
 
     let story = first_positional(&args);
@@ -82,6 +91,21 @@ fn first_positional(args: &[String]) -> Option<String> {
     args.iter()
         .find(|arg| !arg.starts_with("--"))
         .map(|arg| arg.to_string())
+}
+
+/// Handle `--recent`, returning an exit code.
+///
+/// Deliberately reads without pruning: a terminal command that silently rewrites the
+/// user's configuration file is a surprise, and the list entry that cannot open will be
+/// dropped by the editor the next time it runs.
+fn run_recent(args: &[String]) -> i32 {
+    let json = args.iter().any(|arg| arg == "--json");
+    let recent = recent::RecentFiles::load();
+    print!("{}", recent::render(recent.paths(), json));
+    if !json && recent.is_empty() {
+        eprintln!("rustory-editor: no recent stories");
+    }
+    0
 }
 
 /// Handle `--check`, returning an exit code.

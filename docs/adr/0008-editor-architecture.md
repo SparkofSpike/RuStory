@@ -153,3 +153,23 @@ Both gaps this ADR originally listed are closed:
 A close guard was added at the same time. Unsaved work prompts before the window closes
 and before Open or New replaces the document, because losing a scene to a misclick is the
 one failure an editor must not have.
+
+## Recent files
+
+The recent list answers "which story was I editing?" with one click, and it is kept in
+the app rather than in the operation layer. Which files a person opened last week is a
+property of the workstation, not of the document: it must not become an `EditOp`, it must
+not enter the undo history, and it must not be written into the story file where it would
+follow the project to another machine and mean nothing there.
+
+- **Storage.** `%APPDATA%\rustory\recent.json`, `$XDG_CONFIG_HOME/rustory/recent.json`
+  (or `~/.config`) elsewhere, ten entries at most. Stored absolute, because a list
+  written from one working directory has to resolve from another. Compared
+  case-insensitively on Windows, where `Story.RON` and `story.ron` are one file.
+- **Tolerance over strictness.** A missing or corrupt file loads as an empty list, and an
+  entry that no longer opens is dropped: every item in the menu has to be a file that
+  opens, so the list is pruned on startup rather than offering a row of errors.
+- **The CLI reads, the GUI writes.** `rustory-editor --recent [--json]` prints the list
+  for an agent to inspect without a display. It deliberately does not prune, because a
+  terminal command that silently rewrites the user's configuration is a surprise; the
+  editor will drop the dead entry the next time it runs.
