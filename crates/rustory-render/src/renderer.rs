@@ -601,7 +601,10 @@ impl Renderer {
             });
 
         {
-            let clear = frame.clear.to_array();
+            // Linear, not sRGB: the target is `Bgra8UnormSrgb`, so wgpu encodes whatever
+            // it is given. Passing sRGB values here encodes twice and turns a near-black
+            // scene into mid grey.
+            let clear = frame.clear.to_linear_clear();
             let mut pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: Some("rustory pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
@@ -610,10 +613,10 @@ impl Renderer {
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(wgpu::Color {
-                            r: clear[0] as f64,
-                            g: clear[1] as f64,
-                            b: clear[2] as f64,
-                            a: clear[3] as f64,
+                            r: clear[0],
+                            g: clear[1],
+                            b: clear[2],
+                            a: clear[3],
                         }),
                         store: StoreOp::Store,
                     },
@@ -781,7 +784,11 @@ impl Renderer {
             .iter()
             .map(|quad| InstanceRaw {
                 rect: [quad.rect.x, quad.rect.y, quad.rect.width, quad.rect.height],
-                color: quad.color.to_array(),
+                // Linear for the same reason as the clear colour: the shader multiplies
+                // this against a sampled texture that has already been decoded to linear
+                // by the sRGB sampler. Multiplying linear by sRGB would tint every
+                // semi-transparent panel the wrong shade.
+                color: quad.color.to_linear_array(),
                 uv: quad.uv.bounds,
             })
             .collect();

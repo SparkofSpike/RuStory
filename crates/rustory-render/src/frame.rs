@@ -1,4 +1,4 @@
-//! The draw list.
+﻿//! The draw list.
 //!
 //! The renderer consumes a [`Frame`] and nothing else. It has no idea a story
 //! exists: the application translates narrative state into quads and text runs,
@@ -37,6 +37,11 @@ impl Rgba {
     }
 
     /// Normalized `[r, g, b, a]` as the GPU expects.
+    ///
+    /// These are **sRGB** values, matching how a designer thinks and how an image file
+    /// stores them. The renderer converts to linear at the boundary — see
+    /// [`Rgba::to_linear_array`] for why that conversion is required rather than
+    /// optional.
     #[must_use]
     pub fn to_array(self) -> [f32; 4] {
         [
@@ -45,6 +50,84 @@ impl Rgba {
             self.b as f32 / 255.0,
             self.a as f32 / 255.0,
         ]
+    }
+
+    /// Normalized `[r, g, b, a]` converted to **linear** light.
+    ///
+    /// The render target is `Bgra8UnormSrgb`, so wgpu treats every value written to it
+    /// as linear and encodes it to sRGB on the way out. Handing it sRGB values means
+    /// encoding twice: `12` becomes `61`, and a near-black dialogue box renders as mid
+    /// grey. Caught by `tests/colour.rs`, which asserts what actually lands in the
+    /// framebuffer rather than what was asked for.
+    ///
+    /// Alpha is not gamma-encoded, so it passes through untouched.
+    #[must_use]
+    pub fn to_linear_array(self) -> [f32; 4] {
+        [
+            srgb_to_linear(self.r),
+            srgb_to_linear(self.g),
+            srgb_to_linear(self.b),
+            self.a as f32 / 255.0,
+        ]
+    }
+
+    /// The same colour as linear-light `f64`, which is what wgpu's clear value takes.
+    #[must_use]
+    pub fn to_linear_clear(self) -> [f64; 4] {
+        let linear = self.to_linear_array();
+        [
+            linear[0] as f64,
+            linear[1] as f64,
+            linear[2] as f64,
+            linear[3] as f64,
+        ]
+    }
+}
+
+/// sRGB transfer function, inverse of the encoding the GPU applies on output.
+///
+/// The piecewise form is not an approximation of the `2.2` power curve; it is the
+/// actual standard, and the linear segment near black is what keeps shadows from
+/// crushing. Using `powf(2.2)` instead would be visibly wrong in the dark end, which
+/// is where a night scene lives.
+fn srgb_to_linear(channel: u8) -> f32 {
+    let c = channel as f32 / 255.0;
+    if c <= 0.040_45 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+#[cfg(test)]
+mod colour_space {
+    use super::*;
+
+    #[test]
+    fn srgb_to_linear_matches_the_standard_at_known_points() {
+        // Endpoints are exact, by definition.
+        assert!((srgb_to_linear(0) - 0.0).abs() < 1e-6);
+        assert!((srgb_to_linear(255) - 1.0).abs() < 1e-6);
+
+        // 128/255 ≈ 0.502 sRGB is ≈ 0.216 linear. This is the number that makes
+        // "mid grey" look like mid grey instead of light grey.
+        assert!((srgb_to_linear(128) - 0.2158).abs() < 0.001);
+
+        // 12/255 is in the linear segment; the result must be far darker than the
+        // 0.047 input, which is the whole bug this function exists to fix.
+        assert!(srgb_to_linear(12) < 0.005);
+    }
+}
+
+#[cfg(test)]
+mod channel_tests {
+    use super::*;
+
+    #[test]
+    fn alpha_survives_the_conversion_untouched() {
+        let colour = Rgba::rgba(12, 14, 20, 128);
+        let linear = colour.to_linear_array();
+        assert!((linear[3] - 128.0 / 255.0).abs() < 1e-6);
     }
 }
 
