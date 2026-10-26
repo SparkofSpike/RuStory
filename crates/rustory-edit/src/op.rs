@@ -203,6 +203,10 @@ impl EditOp {
                     ..
                 },
             ) => a == b && ao == bo,
+            // The exit form is one group of controls for one field. Picking `Goto` and
+            // then typing an ending name is one act; undo should step behind all of it
+            // rather than behind the last letter typed.
+            (Self::SetExit { node: a, .. }, Self::SetExit { node: b, .. }) => a == b,
             _ => false,
         }
     }

@@ -13,6 +13,16 @@ use rustory_edit::prelude::*;
 
 use crate::app::{EditorApp, UiAction};
 
+/// Whether a node id matches the filter text. Case-insensitive, trimmed, and an empty
+/// filter matches everything.
+///
+/// Substring rather than prefix because authors think in the middle of a name as often
+/// as at the start (`half_honest` when looking for `honest`).
+fn matches_filter(id: &NodeId, filter: &str) -> bool {
+    let needle = filter.trim().to_lowercase();
+    needle.is_empty() || id.to_string().to_lowercase().contains(&needle)
+}
+
 /// Menu bar, title, undo/redo, preview controls.
 pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
     egui::Panel::top("top").show(ui, |ui| {
@@ -208,9 +218,35 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
                 return;
             };
 
+            // A story with thirty nodes is already a list you scan rather than read, and
+            // scanning is what a filter is for. Typing here does not edit the document,
+            // so it takes no undo step and cannot fail.
+            ui.add(
+                egui::TextEdit::singleline(&mut app.node_filter)
+                    .hint_text("filter nodes")
+                    .desired_width(f32::INFINITY),
+            );
+
             let story = editor.story();
             let start = story.start.clone();
-            let ids: Vec<NodeId> = story.nodes.keys().cloned().collect();
+            let total = story.nodes.len();
+            let ids: Vec<NodeId> = story
+                .nodes
+                .keys()
+                .filter(|id| matches_filter(id, &app.node_filter))
+                .cloned()
+                .collect();
+
+            if ids.len() != total {
+                ui.label(
+                    egui::RichText::new(format!("{} of {total}", ids.len()))
+                        .small()
+                        .weak(),
+                );
+            }
+            if ids.is_empty() && !app.node_filter.trim().is_empty() {
+                ui.label(egui::RichText::new("No node matches.").weak());
+            }
 
             egui::ScrollArea::vertical()
                 .max_height(ui.available_height() - 130.0)
@@ -567,12 +603,19 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
             ui.group(|ui| {
                 let mut exit = node.exit.clone();
                 let mut changed = false;
-                exit_form(ui, &mut exit, &mut changed, editor);
+                // A reference the author cannot follow is a dead end in the editing
+                // session even when the story is fine. `jump` collects the request;
+                // acting on it here would fight the read borrow of `node`.
+                let mut jump = None;
+                exit_form(ui, &mut exit, &mut changed, editor, &mut jump);
                 if changed && exit != node.exit {
                     app.pending.push(EditOp::SetExit {
                         node: selected.clone(),
                         exit,
                     });
+                }
+                if let Some(target) = jump {
+                    app.selected = Some(target);
                 }
             });
 
@@ -627,6 +670,17 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                                         }
                                     }
                                 });
+
+                            // Following a reference by hand — find the node, scroll to
+                            // it, hope the name was remembered correctly — is the most
+                            // common way a writer loses the thread while editing.
+                            if ui
+                                .button("Go")
+                                .on_hover_text("Select the target node")
+                                .clicked()
+                            {
+                                app.selected = Some(choice.to.clone());
+                            }
 
                             if ui
                                 .add_enabled(choices.len() > 1, egui::Button::new("Del"))
@@ -701,6 +755,14 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                                 });
                             if target != original {
                                 retarget = Some((row.outcome.clone(), NodeId::from(target)));
+                            }
+
+                            if ui
+                                .button("Go")
+                                .on_hover_text("Select the target node")
+                                .clicked()
+                            {
+                                app.selected = Some(row.to.clone());
                             }
 
                             if ui
@@ -917,7 +979,17 @@ fn beat_form(ui: &mut egui::Ui, beat: &mut Beat, index: usize) -> bool {
 }
 
 /// Edit an exit. Sets `changed` when the user asked for something different.
-fn exit_form(ui: &mut egui::Ui, exit: &mut Exit, changed: &mut bool, editor: &Editor) {
+///
+/// `jump` receives a node the author asked to look at. The form cannot select it
+/// itself: it is handed a story, not the app, and reaching back into the app from here
+/// would make the panel that draws a form also decide what is selected.
+fn exit_form(
+    ui: &mut egui::Ui,
+    exit: &mut Exit,
+    changed: &mut bool,
+    editor: &Editor,
+    jump: &mut Option<NodeId>,
+) {
     let node_ids: Vec<String> = editor
         .story()
         .nodes
@@ -991,6 +1063,13 @@ fn exit_form(ui: &mut egui::Ui, exit: &mut Exit, changed: &mut bool, editor: &Ed
                             }
                         }
                     });
+                if ui
+                    .button("Go")
+                    .on_hover_text("Select the target node")
+                    .clicked()
+                {
+                    *jump = Some(to.clone());
+                }
             }
             Exit::Choose { prompt, .. } => {
                 let mut has = prompt.is_some();
@@ -1021,4 +1100,28 @@ fn exit_form(ui: &mut egui::Ui, exit: &mut Exit, changed: &mut bool, editor: &Ed
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_empty_filter_matches_every_node() {
+        assert!(matches_filter(&NodeId::from("prologue"), ""));
+        assert!(matches_filter(&NodeId::from("prologue"), "   "));
+    }
+
+    #[test]
+    fn the_filter_matches_anywhere_in_the_name_ignoring_case() {
+        // Searching `honest` has to find `half_honest`: authors look for the word, not
+        // for the prefix someone else chose.
+        assert!(matches_filter(&NodeId::from("half_honest"), "HONEST"));
+        assert!(matches_filter(&NodeId::from("Prologue"), "pro"));
+    }
+
+    #[test]
+    fn a_filter_that_appears_nowhere_excludes_the_node() {
+        assert!(!matches_filter(&NodeId::from("prologue"), "epilogue"));
+    }
 }

@@ -55,6 +55,9 @@ pub struct EditorApp {
     /// Buffer for a new gameplay outcome key, so the field can hold text that is not
     /// yet a valid key.
     pub new_outcome: String,
+    /// Node-list filter. Not an edit: it changes what is shown, not what is stored, so
+    /// it takes no undo step.
+    pub node_filter: String,
     /// Whether the story settings form is expanded.
     pub show_story_settings: bool,
     /// How many interactions the preview has applied. The preview is a real
@@ -92,6 +95,7 @@ impl EditorApp {
             new_node_id: String::new(),
             rename_buffer: String::new(),
             new_outcome: String::new(),
+            node_filter: String::new(),
             show_story_settings: false,
             preview_step: 0,
             preview: Preview::new(),

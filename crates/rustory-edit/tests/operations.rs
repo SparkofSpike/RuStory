@@ -1215,3 +1215,34 @@ fn title_typing_merges_but_a_different_field_does_not() {
         "the whole title is one step"
     );
 }
+
+#[test]
+fn retyping_an_ending_name_is_one_undo_step() {
+    let mut editor = linked();
+    let node = NodeId::from("b");
+
+    for ending in ["h", "ha", "hap", "happy"] {
+        editor
+            .apply(&EditOp::SetExit {
+                node: node.clone(),
+                exit: Exit::End {
+                    ending: Some(ending.into()),
+                },
+            })
+            .expect("applies");
+    }
+
+    assert_eq!(
+        editor.story().nodes[&node].exit,
+        Exit::End {
+            ending: Some("happy".into())
+        }
+    );
+
+    editor.undo().expect("undo");
+    assert_eq!(
+        editor.story().nodes[&node].exit,
+        Exit::End { ending: None },
+        "the exit form is one field, so one undo step"
+    );
+}

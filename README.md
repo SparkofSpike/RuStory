@@ -98,6 +98,11 @@ Nodes, beats, exits, choices and gameplay outcome mappings are all editable as f
 The outcome table is what makes a gameplay system reusable: the same `timer.timed_choice`
 can mean different things in different scenes because *where each key leads is data*.
 
+The node list has a filter, and every reference — a `goto`, a choice target, a gameplay
+outcome — has a **Go** button beside it, so following a branch never means remembering a
+node name and scrolling to find it. Selection is UI state, not an edit: it takes no undo
+step and is never written to disk.
+
 ![Outcome mappings](shots/editor-outcomes.png)
 
 Every edit is **all or nothing**: `Editor::apply` either succeeds and leaves a valid

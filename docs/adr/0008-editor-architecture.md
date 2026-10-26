@@ -173,3 +173,16 @@ follow the project to another machine and mean nothing there.
   for an agent to inspect without a display. It deliberately does not prune, because a
   terminal command that silently rewrites the user's configuration is a surprise; the
   editor will drop the dead entry the next time it runs.
+
+## Selection is UI state
+
+`selected` lives in the app, not in the document, and panels set it directly. Choosing
+what to look at is not editing: it takes no undo step, changes nothing on disk, and is
+not an `EditOp`. The rule "panels describe intent, the app applies it" is about edits.
+
+That is what makes navigation cheap enough to put everywhere. The **Go** button beside a
+`goto` target, a choice target and a gameplay outcome all write that one field, so
+following a branch does not mean remembering a node name and scrolling to find it. The
+node list has a filter for the same reason ¡ª a story with thirty nodes is a list you scan,
+and scanning is what a filter is for. Neither feature touches the story, which is why
+neither needs an operation, a test of atomicity, or a place in the CLI.
