@@ -56,10 +56,10 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 116 tests, including offscreen GPU renders that assert where things land
+- 124 tests, including offscreen GPU renders that assert where things land
 
-Not yet: audio, rollback history, WASM plugins, an authoring tool, packaged fonts.
-Those have ADRs describing the plan, not code pretending to be one.
+Not yet: audio, rollback history, WASM plugins, an authoring tool. Those have ADRs
+describing the plan, not code pretending to be one.
 
 ## Try it
 
@@ -128,13 +128,35 @@ Requires Rust 1.85+ (edition 2024) and, on Windows, the MSVC toolchain.
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 116 tests; render tests skip without a GPU
+cargo test --workspace      # 124 tests; render tests skip without a GPU
 cargo run -p rustory -- probe
 ```
 
 The dev profile builds dependencies at `opt-level = 3` — an unoptimized
 `wgpu`/`naga` build is slow enough that a frame-rate problem looks like a
 renderer bug — while workspace crates stay at `opt-level = 1`.
+
+## Fonts
+
+The engine ships **no typefaces**. A typeface is a design decision and a licensing
+question that belong to the project, not to the engine: a CJK face alone is 10MB+,
+and many commercial ones cannot be redistributed at all.
+
+Which means a project that cares about its typography supplies its own:
+
+```console
+$ mkdir -p assets/fonts && cp MyTypeface.ttf assets/fonts/
+$ cargo run -p rustory -- shot stories/demo.ron --out frame.png
+font: My Typeface
+```
+
+Dropping a file in `assets/fonts/` is enough — the first family found becomes the
+default. `--font "Family Name"` selects a specific one, and the loader reports the
+family a file *declares* rather than its filename, because `AGENCYR.TTF` being
+`Agency FB` is not something a creator should have to guess.
+
+A project with no fonts renders in the platform's default sans-serif, which is a
+reasonable place to start. See [ADR 0007](docs/adr/0007-fonts-are-the-projects-choice.md).
 
 ## Writing a story
 

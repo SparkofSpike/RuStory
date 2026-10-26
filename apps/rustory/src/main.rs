@@ -48,6 +48,8 @@ OPTIONS for shot / play / save / resume:
     --out <file>       Output path for shot (.png) or save (.ron)
     --advance <n>      Clicks to simulate before acting (default: 0)
     --finish           resume: keep playing to an ending instead of reporting
+    --font <family>    Typeface for all text; load files from <assets>/fonts first
+                       (no --font means the platform's default sans-serif)
 ";
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -95,6 +97,17 @@ fn probe() -> Result<(), String> {
         Err(err) => println!("gpu:  UNAVAILABLE — {err}"),
     }
     println!("text: {}", rustory_render::probe_text());
+
+    // Report project fonts as well as system ones: "the font did not apply" is
+    // otherwise a guess about whether the file loaded or the name was wrong.
+    if let Ok(mut renderer) = Renderer::new_headless(8, 8) {
+        let loaded = driver::load_fonts(&mut renderer, Path::new("assets"));
+        if loaded.is_empty() {
+            println!("project fonts: none in assets/fonts (using platform defaults)");
+        } else {
+            println!("project fonts: {}", loaded.join(", "));
+        }
+    }
     Ok(())
 }
 
@@ -168,6 +181,7 @@ struct ShotOptions {
     assets: PathBuf,
     out: PathBuf,
     advance: usize,
+    font: Option<String>,
 }
 
 fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
@@ -177,6 +191,7 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
         assets: PathBuf::from("assets"),
         out: PathBuf::from("shot.png"),
         advance: 0,
+        font: None,
     };
 
     let mut index = 0;
@@ -196,6 +211,10 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
                 options.advance = value
                     .parse()
                     .map_err(|_| format!("--advance expects a number, got `{value}`"))?;
+            }
+            "--font" => {
+                index += 1;
+                options.font = Some(args.get(index).ok_or("--font needs a family name")?.clone());
             }
             other if other.starts_with("--") => return Err(format!("unknown option `{other}`")),
             other => {
@@ -238,6 +257,10 @@ fn shot(args: &[String]) -> Result<(), String> {
 
     let mut renderer = Renderer::new_headless(WIDTH, HEIGHT).map_err(|err| err.to_string())?;
     let bank = driver::load_textures(&mut renderer, &options.assets);
+    let loaded = driver::load_fonts(&mut renderer, &options.assets);
+    if let Some(family) = driver::choose_font(&mut renderer, options.font.as_deref(), &loaded)? {
+        println!("font: {family}");
+    }
 
     let prompt = narrative.gameplay_prompt(&registry);
     let frame = driver::build_frame(&narrative, &bank, prompt.as_deref(), None);

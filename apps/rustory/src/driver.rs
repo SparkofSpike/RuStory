@@ -56,6 +56,65 @@ pub fn load_textures(renderer: &mut Renderer, dir: &Path) -> TextureBank {
     bank
 }
 
+/// Load every font file in `assets/fonts`, if that directory exists.
+///
+/// The engine ships no fonts. A project that must render on machines it has never
+/// seen supplies its own; one that is happy with platform defaults ignores this.
+/// A missing directory is normal, not an error: most checkouts will not have one.
+///
+/// Returns the family names that loaded, in filename order, so a caller can either
+/// report them or pick the first as the project default.
+#[must_use]
+pub fn load_fonts(renderer: &mut Renderer, assets_dir: &Path) -> Vec<String> {
+    let dir = assets_dir.join("fonts");
+    if !dir.is_dir() {
+        return Vec::new();
+    }
+    renderer.load_fonts_dir(&dir).unwrap_or_else(|err| {
+        eprintln!("rustory: {err}");
+        Vec::new()
+    })
+}
+
+/// Choose the typeface for everything that did not ask for a specific face.
+///
+/// Precedence: an explicit request wins; otherwise the first font found in
+/// `<assets>/fonts` becomes the default, because a project that shipped a font
+/// meant it to be used; otherwise nothing changes and the platform decides.
+///
+/// The middle case is the one worth having: dropping a file into `assets/fonts`
+/// should be enough, without a creator having to discover a command-line flag or
+/// learn the internal family name of their own file.
+///
+/// Returns the family that ended up in effect, if one did.
+pub fn choose_font(
+    renderer: &mut Renderer,
+    requested: Option<&str>,
+    loaded: &[String],
+) -> Result<Option<String>, String> {
+    if let Some(family) = requested {
+        return if renderer.set_sans_serif_family(family) {
+            Ok(Some(family.to_owned()))
+        } else {
+            Err(format!(
+                "font family `{family}` is not available. Put font files in \
+                 `<assets>/fonts/`, or omit `--font` to use the platform default."
+            ))
+        };
+    }
+
+    let Some(family) = loaded.first() else {
+        return Ok(None);
+    };
+    if renderer.set_sans_serif_family(family) {
+        Ok(Some(family.clone()))
+    } else {
+        // Loaded but not selectable is a strange state; say so rather than letting
+        // the caller assume the project font took effect.
+        Err(format!("loaded font `{family}` cannot be selected"))
+    }
+}
+
 /// Perform one interaction, whatever the current mode demands.
 ///
 /// A choice always takes the first branch and gameplay is stepped without input,

@@ -1,4 +1,4 @@
-# Architecture
+﻿# Architecture
 
 This document describes RuStory's layers, its data flow, and the invariants that
 break the design if violated. The **reasoning** behind each choice lives in
@@ -215,7 +215,7 @@ GPU is an environment fact, not a regression.
   the first option.
 - **A bad gameplay config surfaces only when playback reaches that node**, not at
   load time.
-- **Fonts come from the host system.** `FontSystem::new()` reads whatever the OS
-  provides. Fine on a development machine, wrong for distribution: a player
-  without the font sees replacement boxes. Packaging fonts is a prerequisite for
-  shipping, not a nicety.
+- **No built-in typeface.** The engine ships no fonts; a project supplies its own
+  through `assets/fonts/` or `--font`. See ADR 0007. The demo therefore renders in
+  whatever the host considers its default sans-serif, which is correct but means
+  screenshots differ between machines.

@@ -15,6 +15,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0004](0004-cross-system-contract.md) | Cross-system contract: events outward, narrow state inward | Accepted, implemented | How do narrative and gameplay share state? |
 | [0005](0005-wasm-vs-upper-ui.md) | WASM sandbox vs upper-layer UI: split by what each can break | Proposed | Which gameplay goes where? |
 | [0006](0006-save-and-rollback.md) | Save and rollback: snapshots over event replay | Accepted, implemented | How does gameplay state enter a save? |
+| [0007](0007-fonts-are-the-projects-choice.md) | Fonts are the project's responsibility, not the engine's | Accepted, implemented | Where do typefaces come from? |
 
 ## Status meanings
 
@@ -33,4 +34,4 @@ None of these are decided. Writing one is the first step before changing code.
 - **Gameplay reading narrative state**: does it need a read-only snapshot? See
   the open gap recorded in ADR 0004.
 - **Format evolution**: how a script migrates when the story format gains a DSL.
-- **Localisation**: externalised text and the font fallback strategy.
+- **Localisation**: externalised text, and how a project swaps languages at runtime.

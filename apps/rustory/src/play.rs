@@ -30,6 +30,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut story_path = None;
     let mut assets = PathBuf::from("assets");
     let mut save_path = PathBuf::from("save.ron");
+    let mut font = None;
 
     let mut index = 0;
     while index < args.len() {
@@ -41,6 +42,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--save-slot" => {
                 index += 1;
                 save_path = PathBuf::from(args.get(index).ok_or("--save-slot needs a path")?);
+            }
+            "--font" => {
+                index += 1;
+                font = Some(args.get(index).ok_or("--font needs a family name")?.clone());
             }
             other if other.starts_with("--") => return Err(format!("unknown option `{other}`")),
             other => {
@@ -61,7 +66,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Continuous redraw: the typewriter needs frames even when nothing moves.
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut player = Player::new(narrative, assets, save_path);
+    let mut player = Player::new(narrative, assets, save_path, font);
     event_loop
         .run_app(&mut player)
         .map_err(|err| err.to_string())
@@ -78,6 +83,9 @@ struct Player {
     narrative: Narrative,
     registry: GameplayRegistry,
     assets: PathBuf,
+    /// Family name requested on the command line, applied once the renderer's font
+    /// database exists. `None` means the platform's default sans-serif.
+    font: Option<String>,
     /// Where F5 writes and F9 reads. A single slot keeps the mental model small;
     /// multiple slots would need a save browser before they were worth having.
     save_path: PathBuf,
@@ -96,11 +104,17 @@ struct Player {
 }
 
 impl Player {
-    fn new(narrative: Narrative, assets: PathBuf, save_path: PathBuf) -> Self {
+    fn new(
+        narrative: Narrative,
+        assets: PathBuf,
+        save_path: PathBuf,
+        font: Option<String>,
+    ) -> Self {
         Self {
             narrative,
             registry: driver::default_registry(),
             assets,
+            font,
             save_path,
             notice: None,
             notice_until: None,
@@ -211,6 +225,24 @@ impl Player {
         let mut renderer = Renderer::from_device(device, queue, config.width, config.height)
             .map_err(|err| err.to_string())?;
         let bank = driver::load_textures(&mut renderer, &self.assets);
+
+        // Project fonts are loaded before the family is chosen, so `--font` can
+        // name a file the project ships rather than only an installed one.
+        let loaded = driver::load_fonts(&mut renderer, &self.assets);
+        match driver::choose_font(&mut renderer, self.font.as_deref(), &loaded) {
+            Ok(Some(family)) => {
+                if self.font.is_none() {
+                    // Say it once: a silently different typeface is confusing when
+                    // someone later wonders why the file they added took effect.
+                    eprintln!("rustory: using project font `{family}`");
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                eprintln!("rustory: {err}");
+                self.set_notice(format!("Font problem: {err}"));
+            }
+        }
 
         self.gpu = Some(Gpu {
             surface,
