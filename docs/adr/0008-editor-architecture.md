@@ -84,6 +84,11 @@ editor and the document — for a tool whose value is that the operations are ex
 `rustory_render::Renderer`. A preview that approximated the output would be worse than
 none, because it would be trusted.
 
+The preview starts at the node selected in the node list, not at `story.start`. A preview
+of one node while another is selected is a panel that lies about what it is showing. The
+header text is taken from the same `Narrative` that produced the frame, for the same
+reason: two answers to "where am I" eventually disagree.
+
 Layout code is duplicated between `apps/rustory/src/scene.rs` and
 `apps/rustory-editor/src/preview.rs`. That duplication is a **known cost**, recorded here
 rather than hidden: the alternative is hoisting layout into `rustory-render`, which would
@@ -97,18 +102,16 @@ intermediate, and this ADR should be superseded.
 
 ## What the GUI deliberately does not do
 
-- **No file picker.** The story path comes from the command line. A native dialog is a
-  platform dependency for a convenience; it is a known gap, not a hidden one.
-- **No feature that is not an `EditOp`.** Anything the GUI can do, the CLI can do. If a
-  feature is not expressible as an operation, it belongs in the operations first.
-- **No gameplay outcome mapping editor.** The panel shows the count and points at
-  `rustory edit --op SetExit`, because the mapping editor needs a table widget that has
-  not been built. Saying so in the UI is better than a form that silently cannot express
-  what the format allows.
+- **No feature that changes the story without an `EditOp`.** If a feature is not
+  expressible as an operation, it belongs in the operations first. Selection, the recent
+  list and the preview position are not edits — see "Selection is UI state" below.
+- **No playback controls.** The preview steps; it is not a player. `rustory play` is the
+  player, and giving the editor a second input loop would mean two answers to what a
+  click does.
 
 ## Verification
 
-- `cargo test --workspace` — 156 tests. `rustory-edit` contributes 32 of them, covering
+- `cargo test --workspace` — 206 tests. `rustory-edit` contributes 45 of them, covering
   every operation, every refusal, batch rollback, undo/redo, and a lossless save/reload
   round-trip including non-ASCII text.
 - `rustory ops --json` prints the operation vocabulary with `changes_structure` flags.

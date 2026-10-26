@@ -210,6 +210,18 @@ impl EditorApp {
         }
     }
 
+    /// Select a node for editing.
+    ///
+    /// Resets the preview step when the selection actually changes: a step count belongs
+    /// to the position it was counted at, and carrying it into a different node shows a
+    /// frame that has nothing to do with what the author just clicked.
+    pub fn select(&mut self, id: NodeId) {
+        if self.selected.as_ref() != Some(&id) {
+            self.preview_step = 0;
+        }
+        self.selected = Some(id);
+    }
+
     pub fn set_status(&mut self, message: impl Into<String>, is_error: bool) {
         self.status = message.into();
         self.status_is_error = is_error;

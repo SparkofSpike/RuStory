@@ -248,6 +248,9 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
                 ui.label(egui::RichText::new("No node matches.").weak());
             }
 
+            // Collected rather than applied inside the scroll area: `select` is a method
+            // on the app, which borrows all of it, and the closure still holds `editor`.
+            let mut select: Option<NodeId> = None;
             egui::ScrollArea::vertical()
                 .max_height(ui.available_height() - 130.0)
                 .show(ui, |ui| {
@@ -267,7 +270,7 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
                             .on_hover_text(describe_node(node))
                             .clicked()
                         {
-                            app.selected = Some(id.clone());
+                            select = Some(id.clone());
                             app.rename_buffer = id.to_string();
                         }
                     }
@@ -291,57 +294,62 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
             });
 
             // Rename / duplicate / delete the selection
-            let Some(selected) = app.selected.clone() else {
-                return;
-            };
+            if let Some(selected) = app.selected.clone() {
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(!is_start(&selected, editor), egui::Button::new("Delete"))
+                        .on_hover_text("Delete the selected node")
+                        .clicked()
+                    {
+                        app.pending.push(EditOp::DeleteNode {
+                            id: selected.clone(),
+                        });
+                    }
 
-            ui.horizontal(|ui| {
-                if ui
-                    .add_enabled(!is_start(&selected, editor), egui::Button::new("Delete"))
-                    .on_hover_text("Delete the selected node")
-                    .clicked()
-                {
-                    app.pending.push(EditOp::DeleteNode {
-                        id: selected.clone(),
-                    });
-                }
+                    if ui.button("Duplicate").clicked() {
+                        let as_id = NodeId::from(format!("{}-copy", selected));
+                        app.pending.push(EditOp::DuplicateNode {
+                            id: selected.clone(),
+                            as_id,
+                        });
+                    }
 
-                if ui.button("Duplicate").clicked() {
-                    let as_id = NodeId::from(format!("{}-copy", selected));
-                    app.pending.push(EditOp::DuplicateNode {
-                        id: selected.clone(),
-                        as_id,
-                    });
-                }
+                    if ui.button("Make start").clicked() {
+                        app.pending.push(EditOp::SetStartNode {
+                            node: selected.clone(),
+                        });
+                    }
+                });
 
-                if ui.button("Make start").clicked() {
-                    app.pending.push(EditOp::SetStartNode {
-                        node: selected.clone(),
-                    });
-                }
-            });
+                ui.horizontal(|ui| {
+                    if app.rename_buffer.is_empty() {
+                        app.rename_buffer = selected.to_string();
+                    }
+                    ui.add(
+                        egui::TextEdit::singleline(&mut app.rename_buffer)
+                            .hint_text("rename to")
+                            .desired_width(140.0),
+                    );
+                    let target = app.rename_buffer.trim().to_owned();
+                    let can_rename = !target.is_empty() && target != selected.to_string();
+                    if ui
+                        .add_enabled(can_rename, egui::Button::new("Rename"))
+                        .clicked()
+                    {
+                        app.pending.push(EditOp::RenameNode {
+                            from: selected.clone(),
+                            to: NodeId::from(target),
+                        });
+                    }
+                });
+            }
 
-            ui.horizontal(|ui| {
-                if app.rename_buffer.is_empty() {
-                    app.rename_buffer = selected.to_string();
-                }
-                ui.add(
-                    egui::TextEdit::singleline(&mut app.rename_buffer)
-                        .hint_text("rename to")
-                        .desired_width(140.0),
-                );
-                let target = app.rename_buffer.trim().to_owned();
-                let can_rename = !target.is_empty() && target != selected.to_string();
-                if ui
-                    .add_enabled(can_rename, egui::Button::new("Rename"))
-                    .clicked()
-                {
-                    app.pending.push(EditOp::RenameNode {
-                        from: selected.clone(),
-                        to: NodeId::from(target),
-                    });
-                }
-            });
+            // Applied last: `select` borrows the whole app, and `editor` is still in use
+            // above. The early return that used to sit here is gone for the same reason
+            // — skipping it must not skip the click the user just made.
+            if let Some(id) = select {
+                app.select(id);
+            }
         });
 }
 
@@ -492,6 +500,10 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
         ui.heading(format!("{selected}"));
         ui.separator();
 
+        // Collected rather than applied inside the scroll area: `select` is a method on
+        // the app, which borrows all of it, and the closure still holds `editor`.
+        let mut select: Option<NodeId> = None;
+
         egui::ScrollArea::vertical().show(ui, |ui| {
             // --- story settings ---
             //
@@ -615,7 +627,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                     });
                 }
                 if let Some(target) = jump {
-                    app.selected = Some(target);
+                    select = Some(target);
                 }
             });
 
@@ -679,7 +691,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                                 .on_hover_text("Select the target node")
                                 .clicked()
                             {
-                                app.selected = Some(choice.to.clone());
+                                select = Some(choice.to.clone());
                             }
 
                             if ui
@@ -762,7 +774,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                                 .on_hover_text("Select the target node")
                                 .clicked()
                             {
-                                app.selected = Some(row.to.clone());
+                                select = Some(row.to.clone());
                             }
 
                             if ui
@@ -821,6 +833,10 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                 }
             }
         });
+
+        if let Some(id) = select {
+            app.select(id);
+        }
     });
 }
 
@@ -849,7 +865,16 @@ pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
             let step = app.preview_step;
             let assets = app.assets.clone();
             let problems = editor.problems();
-            let outcome = app.preview.render(ui.ctx(), editor.story(), step, &assets);
+            // Preview what the author is looking at, not the beginning of the story. A
+            // preview of node A while node B is selected teaches people to distrust the
+            // panel.
+            let start = app
+                .selected
+                .clone()
+                .unwrap_or_else(|| editor.story().start.clone());
+            let outcome = app
+                .preview
+                .render(ui.ctx(), editor.story(), &start, step, &assets);
             let (status_line, failed) = match outcome {
                 Ok(status) => (status, None),
                 Err(err) => (err.clone(), Some(err)),

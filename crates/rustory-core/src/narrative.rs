@@ -111,6 +111,25 @@ impl Narrative {
     pub fn new(story: Story) -> Result<Self, CoreError> {
         story.validate()?;
         let start = story.start.clone();
+        Self::begin(story, start)
+    }
+
+    /// Validate and start at a node other than `story.start`.
+    ///
+    /// The editor needs this: selecting a node and being shown the beginning is a
+    /// preview that lies about what it is displaying. Validation still covers the whole
+    /// story, because starting elsewhere must not hide a broken reference in a node the
+    /// author happens not to be looking at.
+    pub fn at(story: Story, node: &NodeId) -> Result<Self, CoreError> {
+        story.validate()?;
+        if !story.nodes.contains_key(node) {
+            return Err(CoreError::NoSuchNode(node.to_string()));
+        }
+        Self::begin(story, node.clone())
+    }
+
+    /// Build the state for a story already proven valid.
+    fn begin(story: Story, start: NodeId) -> Result<Self, CoreError> {
         let mut narrative = Self {
             story,
             stage: Stage::default(),

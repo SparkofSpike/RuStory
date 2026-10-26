@@ -8,6 +8,9 @@ pub enum CoreError {
     #[error("story declares start node `{0}`, which does not exist")]
     MissingStartNode(String),
 
+    #[error("this story has no node `{0}`")]
+    NoSuchNode(String),
+
     #[error("node `{node}` refers to node `{target}`, which does not exist")]
     DanglingNodeRef { node: String, target: String },
 

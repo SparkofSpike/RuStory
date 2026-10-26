@@ -17,7 +17,7 @@
 //! `click` semantics the CLI uses, so "step 3" in the editor and "step 3" on the
 //! command line mean the same state. Nothing about the frame itself is faked.
 
-use rustory_core::{GameplayInput, GameplayRegistry, Mode, Narrative, Story};
+use rustory_core::{GameplayInput, GameplayRegistry, Mode, Narrative, NodeId, Story};
 use rustory_edit::prelude::*;
 use rustory_render::{Frame, Rect, Renderer, Rgba8Image};
 
@@ -54,8 +54,8 @@ pub struct Preview {
     image: Option<egui::TextureHandle>,
 
     /// What the cached image was rendered from, so an unchanged document does not
-    /// re-render. `(story checksum, step)`.
-    last_key: Option<(u64, usize)>,
+    /// re-render. `(story checksum, start node, step)`.
+    last_key: Option<(u64, NodeId, usize)>,
 
     /// The last status line, so a cache hit reports the same thing as the render that
     /// filled it. Recomputing it on a hit produced a shorter message, which made the
@@ -144,12 +144,15 @@ impl Preview {
         &mut self,
         ctx: &egui::Context,
         story: &Story,
+        start: &NodeId,
         steps: usize,
         paths: &AssetPaths,
     ) -> Result<String, String> {
-        let key = (story.checksum(), steps);
+        // The start node belongs in the key: selecting a different node has to produce a
+        // different frame even when the document and the step count are unchanged.
+        let key = (story.checksum(), start.clone(), steps);
 
-        if self.last_key == Some(key)
+        if self.last_key.as_ref() == Some(&key)
             && self.image.is_some()
             && let Some(status) = self.last_status.clone()
         {
@@ -160,7 +163,7 @@ impl Preview {
             return Err("preview renderer is not ready".to_owned());
         };
 
-        let mut narrative = Narrative::new(story.clone()).map_err(|err| err.to_string())?;
+        let mut narrative = Narrative::at(story.clone(), start).map_err(|err| err.to_string())?;
         let mut registry = default_registry();
 
         for _ in 0..steps {
@@ -217,38 +220,32 @@ impl Preview {
 
         let status = format!(
             "{} · {} primitives · {art}",
-            self.status_for(story, steps, paths)
-                .unwrap_or_else(|| format!("`{}`", narrative.cursor())),
+            status_of(&narrative),
             frame.primitive_count()
         );
         self.last_status = Some(status.clone());
         Ok(status)
     }
+}
 
-    /// What the preview is showing, as a line of text.
-    fn status_for(&self, story: &Story, steps: usize, _paths: &AssetPaths) -> Option<String> {
-        let mut narrative = Narrative::new(story.clone()).ok()?;
-        let mut registry = default_registry();
-        for _ in 0..steps {
-            if matches!(narrative.mode(), Mode::Finished { .. }) {
-                break;
-            }
-            step(&mut narrative, &mut registry).ok()?;
-        }
-
-        Some(match narrative.mode() {
-            Mode::Finished { ending } => match ending {
-                Some(ending) => format!("end ({ending})"),
-                None => "end".to_owned(),
-            },
-            Mode::Suspended { spec } => format!("{} at `{}`", spec.system, narrative.cursor()),
-            _ => format!(
-                "`{}` beat {} of {}",
-                narrative.cursor(),
-                steps.min(narrative.current_node().beats.len()),
-                narrative.current_node().beats.len()
-            ),
-        })
+/// What the preview is showing, as a line of text.
+///
+/// Read from the narrative that produced the frame instead of rebuilding it from the
+/// start: a second `Narrative` would be a second opinion about where the preview is, and
+/// the header would then disagree with the picture directly below it.
+fn status_of(narrative: &Narrative) -> String {
+    match narrative.mode() {
+        Mode::Finished { ending } => match ending {
+            Some(ending) => format!("end ({ending})"),
+            None => "end".to_owned(),
+        },
+        Mode::Suspended { spec } => format!("{} at `{}`", spec.system, narrative.cursor()),
+        _ => format!(
+            "`{}` beat {} of {}",
+            narrative.cursor(),
+            narrative.beat_index(),
+            narrative.current_node().beats.len()
+        ),
     }
 }
 
