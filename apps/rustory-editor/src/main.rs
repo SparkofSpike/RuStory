@@ -27,6 +27,8 @@
 
 mod app;
 mod check;
+mod dialogs;
+mod outcomes;
 mod panels;
 mod preview;
 

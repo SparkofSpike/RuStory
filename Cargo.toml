@@ -29,6 +29,7 @@ rustory-edit = { path = "crates/rustory-edit" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+rfd = "0.17"
 ron = "0.11"
 thiserror = "2"
 unicode-segmentation = "1"

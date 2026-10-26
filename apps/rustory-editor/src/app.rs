@@ -1,23 +1,42 @@
-//! Application state and the frame loop.
+﻿//! Application state and the frame loop.
 //!
 //! # The one rule
 //!
-//! The UI never mutates the story directly. Every interaction produces an
-//! [`EditOp`], which is collected during layout and applied afterwards. Two reasons:
+//! The UI never mutates the story directly. Every interaction produces either an
+//! [`EditOp`] or a [`UiAction`], which is collected during layout and handled
+//! afterwards. Two reasons:
 //!
 //! * Borrowing — the story is borrowed by the panels that display it.
 //! * Correctness — routing through `EditOp` means the GUI cannot reach a state the
 //!   CLI cannot, which is what keeps "an agent can do anything a person can" true
 //!   rather than aspirational.
+//!
+//! [`UiAction`] is the other half: file operations are not edits. Open, save, and new
+//! change *which document is being edited*, not its contents, and they need to talk to
+//! the filesystem and to dialogs. Keeping them separate from `EditOp` means the
+//! operation layer stays free of I/O policy.
 
 use std::path::PathBuf;
 
 use rustory_core::NodeId;
+use rustory_edit::Editor;
 use rustory_edit::prelude::*;
-use rustory_edit::{Document, Editor};
 
+use crate::dialogs;
 use crate::panels;
 use crate::preview::{AssetPaths, Preview};
+
+/// A file-level request from the UI.
+///
+/// Deferred rather than executed inline so it can be handled after the panels stop
+/// borrowing the document — the same reason edits are deferred.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UiAction {
+    Open,
+    New,
+    Save,
+    SaveAs,
+}
 
 pub struct EditorApp {
     /// `None` only before a document exists.
@@ -26,10 +45,11 @@ pub struct EditorApp {
     /// A pending "new node id" string, so the field can hold invalid text while the
     /// user types. Parsed into a [`NodeId`] only on submit.
     pub new_node_id: String,
-    /// Same idea for renaming.
+    /// Same idea for renaming: holds text until the author submits it.
     pub rename_buffer: String,
-    pub renaming: Option<NodeId>,
-
+    /// Buffer for a new gameplay outcome key, so the field can hold text that is not
+    /// yet a valid key.
+    pub new_outcome: String,
     /// How many interactions the preview has applied. The preview is a real
     /// `Narrative`, so this is a genuine position in the story rather than a slide.
     pub preview_step: usize,
@@ -46,6 +66,11 @@ pub struct EditorApp {
 
     /// Operations produced during this frame, applied before drawing the next.
     pub pending: Vec<EditOp>,
+    /// File-level requests produced during this frame.
+    pub pending_actions: Vec<UiAction>,
+
+    /// Set while the close guard is deciding whether a close may proceed.
+    pub close_confirmed: bool,
 }
 
 impl EditorApp {
@@ -55,7 +80,7 @@ impl EditorApp {
             selected: None,
             new_node_id: String::new(),
             rename_buffer: String::new(),
-            renaming: None,
+            new_outcome: String::new(),
             preview_step: 0,
             preview: Preview::new(),
             assets: AssetPaths::from_cwd(),
@@ -63,24 +88,38 @@ impl EditorApp {
             status: "Ready".to_owned(),
             status_is_error: false,
             pending: Vec::new(),
+            pending_actions: Vec::new(),
+            close_confirmed: false,
         };
 
         app.preview.ensure_ready(cc);
 
-        if let Some(path) = story {
-            app.open_path(PathBuf::from(path));
+        match story {
+            Some(path) => app.open_path(PathBuf::from(path)),
+            // Starting with a blank story rather than an empty window: an editor that
+            // shows nothing on launch makes the user find the File menu before they can
+            // do anything at all.
+            None => app.new_story(),
         }
 
         app
     }
 
     /// Load a story, replacing whatever was open.
+    ///
+    /// Refuses when there is unsaved work, after asking. Losing a scene to a misclick
+    /// is the one failure an editor must not have.
     pub fn open_path(&mut self, path: PathBuf) {
+        if !self.may_discard() {
+            return;
+        }
+
         match Editor::open(&path) {
             Ok(editor) => {
                 self.selected = Some(editor.story().start.clone());
                 self.editor = Some(editor);
                 self.preview_step = 0;
+                self.preview.reset();
                 // Art is looked up beside the story, not beside the process. Opening a
                 // project from a different directory must not silently lose its images.
                 self.assets = AssetPaths::beside(&path);
@@ -90,17 +129,44 @@ impl EditorApp {
         }
     }
 
-    /// Load a document that has not been saved anywhere yet.
-    ///
-    /// Not reached from the UI yet: starting a new story needs a way to choose where
-    /// it will be saved, which means a save dialog, which is a known gap. Kept because
-    /// the function is what that dialog will call.
-    #[allow(dead_code)]
-    pub fn adopt(&mut self, document: Document) {
-        self.selected = Some(document.story().start.clone());
-        self.editor = Some(Editor::new(document));
+    /// Begin a new story.
+    pub fn new_story(&mut self) {
+        if !self.may_discard() {
+            return;
+        }
+
+        let editor = Editor::new_story(Some("Untitled".to_owned()));
+        self.selected = Some(editor.story().start.clone());
+        self.editor = Some(editor);
         self.preview_step = 0;
-        self.set_status("New story".to_owned(), false);
+        self.preview.reset();
+        self.assets = AssetPaths::from_cwd();
+        self.set_status("New story — save it to choose a location", false);
+    }
+
+    /// Whether unsaved work may be thrown away.
+    ///
+    /// A clean document never asks. A dirty one asks once, and a "no" stops whatever
+    /// was about to happen.
+    fn may_discard(&mut self) -> bool {
+        let Some(editor) = self.editor.as_ref() else {
+            return true;
+        };
+        if !editor.is_dirty() {
+            return true;
+        }
+
+        let name = editor.path().file_name().map_or_else(
+            || "untitled".to_owned(),
+            |name| name.to_string_lossy().to_string(),
+        );
+
+        if dialogs::confirm_discard(&name) {
+            true
+        } else {
+            self.set_status("Kept the unsaved story open", false);
+            false
+        }
     }
 
     pub fn set_status(&mut self, message: impl Into<String>, is_error: bool) {
@@ -110,6 +176,11 @@ impl EditorApp {
 
     /// Apply everything the UI asked for this frame.
     fn flush(&mut self) {
+        let actions = std::mem::take(&mut self.pending_actions);
+        for action in actions {
+            self.handle(action);
+        }
+
         let ops = std::mem::take(&mut self.pending);
         if ops.is_empty() {
             return;
@@ -154,6 +225,67 @@ impl EditorApp {
         }
     }
 
+    fn handle(&mut self, action: UiAction) {
+        match action {
+            UiAction::Open => {
+                // The dialog runs before `may_discard` would, so a cancelled dialog does
+                // not trigger an unsaved-changes prompt.
+                if let Some(path) = dialogs::open_story() {
+                    self.open_path(path);
+                }
+            }
+            UiAction::New => self.new_story(),
+            UiAction::Save => self.save(),
+            UiAction::SaveAs => self.save_as(),
+        }
+    }
+
+    /// Save, asking for a path when the document has never had one.
+    pub fn save(&mut self) {
+        let Some(editor) = self.editor.as_ref() else {
+            return;
+        };
+        let path = editor.path().to_path_buf();
+        let has_file = editor.document().has_file();
+
+        if !has_file {
+            self.save_as();
+            return;
+        }
+
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
+        match editor.save() {
+            Ok(()) => self.set_status(format!("Saved {}", path.display()), false),
+            Err(err) => self.set_status(err.to_string(), true),
+        }
+    }
+
+    fn save_as(&mut self) {
+        let Some(editor) = self.editor.as_ref() else {
+            return;
+        };
+        let suggested = editor.path().to_path_buf();
+
+        let Some(path) = dialogs::save_story_as(Some(&suggested)) else {
+            return;
+        };
+
+        let Some(editor) = self.editor.as_mut() else {
+            return;
+        };
+        match editor.save_as(&path) {
+            Ok(()) => {
+                // The assets move with the story: saving a chapter into a project
+                // directory should look for that project's art.
+                self.assets = AssetPaths::beside(&path);
+                self.set_status(format!("Saved {}", path.display()), false);
+            }
+            Err(err) => self.set_status(err.to_string(), true),
+        }
+    }
+
     fn undo(&mut self) {
         if let Some(editor) = self.editor.as_mut()
             && let Some(label) = editor.undo()
@@ -170,23 +302,8 @@ impl EditorApp {
         }
     }
 
-    fn save(&mut self) {
-        let Some(editor) = self.editor.as_mut() else {
-            return;
-        };
-        let path = editor.path().display().to_string();
-        match editor.save() {
-            Ok(()) => self.set_status(format!("Saved {path}"), false),
-            Err(err) => self.set_status(err.to_string(), true),
-        }
-    }
-
-    // Public wrappers for the panels. The panels do not mutate state directly; they
-    // ask the app to, which is also where the status line is updated.
-
-    pub fn save_pending(&mut self) {
-        self.save();
-    }
+    // Public wrappers for the panels. Panels do not mutate state directly; they ask the
+    // app to, which is also where the status line is updated.
 
     pub fn undo_pending(&mut self) {
         self.undo();
@@ -200,23 +317,49 @@ impl EditorApp {
 impl eframe::App for EditorApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         // Shortcuts first: they must work regardless of which panel has focus.
-        // `ui.ctx()` is the context for this pass; reading input here keeps the
-        // handler in one place instead of scattering `input(...)` per panel.
-        let (undo, redo, save) = ui.ctx().input(|input| {
+        let shortcuts = ui.ctx().input(|input| {
+            let command = input.modifiers.command;
+            let shift = input.modifiers.shift;
             (
-                input.modifiers.command && input.key_pressed(egui::Key::Z),
-                input.modifiers.command && input.key_pressed(egui::Key::Y),
-                input.modifiers.command && input.key_pressed(egui::Key::S),
+                command && !shift && input.key_pressed(egui::Key::Z),
+                command && !shift && input.key_pressed(egui::Key::Y),
+                command && shift && input.key_pressed(egui::Key::S),
+                command && !shift && input.key_pressed(egui::Key::S),
+                command && input.key_pressed(egui::Key::O),
+                command && input.key_pressed(egui::Key::N),
             )
         });
+        let (undo, redo, save_as, save, open, new) = shortcuts;
+
         if undo {
             self.undo();
         }
         if redo {
             self.redo();
         }
+        if save_as {
+            self.pending_actions.push(UiAction::SaveAs);
+        }
         if save {
-            self.save();
+            self.pending_actions.push(UiAction::Save);
+        }
+        if open {
+            self.pending_actions.push(UiAction::Open);
+        }
+        if new {
+            self.pending_actions.push(UiAction::New);
+        }
+
+        // Close guard. Runs before layout so a cancel takes effect this frame.
+        if ui.ctx().input(|input| input.viewport().close_requested()) && !self.close_confirmed {
+            if self.may_discard() {
+                self.close_confirmed = true;
+            } else {
+                // Refuse the close, and undo the viewport's own decision so the window
+                // stays open rather than vanishing on the next pass.
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            }
         }
 
         panels::top_bar(self, ui);

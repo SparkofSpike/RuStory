@@ -120,6 +120,18 @@ impl Preview {
         self.image.as_ref()
     }
 
+    /// Forget the cached frame and art.
+    ///
+    /// Called when the document changes identity — opened, created, saved elsewhere.
+    /// Without it, a new story would show the previous one's preview until something
+    /// happened to change the cache key.
+    pub fn reset(&mut self) {
+        self.image = None;
+        self.last_key = None;
+        self.last_status = None;
+        self.bank = None;
+    }
+
     /// Render the story as it would appear after `steps` interactions.
     ///
     /// Returns a short status line for the panel header: which node the preview is

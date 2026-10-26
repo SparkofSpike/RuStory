@@ -1,4 +1,4 @@
-//! The panels.
+﻿//! The panels.
 //!
 //! Each function lays out one region and pushes [`EditOp`]s into `app.pending` rather
 //! than touching the story. That is the whole contract: panels describe intent, the
@@ -11,7 +11,7 @@
 use rustory_core::{Beat, Exit, NodeId, Slot};
 use rustory_edit::prelude::*;
 
-use crate::app::EditorApp;
+use crate::app::{EditorApp, UiAction};
 
 /// Menu bar, title, undo/redo, preview controls.
 pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
@@ -22,16 +22,31 @@ pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
 
             let has_doc = app.editor.is_some();
 
-            if ui.button("Open…").clicked() {
-                // No native dialog dependency: the editor takes a path from the
-                // command line or a text field. A file picker would be nicer and is a
-                // known gap, not a hidden one.
-                app.set_status("Pass a story path on the command line to open it", false);
+            if ui
+                .button("New")
+                .on_hover_text("New story (Ctrl+N)")
+                .clicked()
+            {
+                app.pending_actions.push(UiAction::New);
+            }
+            if ui
+                .button("Open…")
+                .on_hover_text("Open a story (Ctrl+O)")
+                .clicked()
+            {
+                app.pending_actions.push(UiAction::Open);
             }
 
             ui.add_enabled_ui(has_doc, |ui| {
-                if ui.button("Save").clicked() {
-                    app.save_pending();
+                if ui.button("Save").on_hover_text("Save (Ctrl+S)").clicked() {
+                    app.pending_actions.push(UiAction::Save);
+                }
+                if ui
+                    .button("Save as…")
+                    .on_hover_text("Save to a new file (Ctrl+Shift+S)")
+                    .clicked()
+                {
+                    app.pending_actions.push(UiAction::SaveAs);
                 }
             });
 
@@ -76,10 +91,15 @@ pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
             ui.separator();
 
             if let Some(editor) = &app.editor {
-                let name = editor.path().file_name().map_or_else(
-                    || "untitled".to_owned(),
-                    |name| name.to_string_lossy().to_string(),
-                );
+                let name = if editor.document().has_file() {
+                    editor.path().file_name().map_or_else(
+                        || "untitled".to_owned(),
+                        |name| name.to_string_lossy().to_string(),
+                    )
+                } else {
+                    // A story with no file yet must not look like one that has a home.
+                    "untitled".to_owned()
+                };
                 let dirty = if editor.is_dirty() { " •" } else { "" };
                 ui.label(format!("{name}{dirty}"));
             }
@@ -178,7 +198,6 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
                         {
                             app.selected = Some(id.clone());
                             app.rename_buffer = id.to_string();
-                            app.renaming = None;
                         }
                     }
                 });
@@ -473,6 +492,113 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                     });
                 }
             }
+
+            // --- outcomes, when the exit hands over to a gameplay system ---
+            //
+            // The keys are free text: the editor does not know which outcomes a system
+            // reports, and a whitelist here would mean the editor knew about specific
+            // systems. The runtime refuses an unmapped key with a clear error, so a typo
+            // surfaces immediately rather than silently skipping a branch.
+            if let Exit::Gameplay { spec } = &node.exit {
+                ui.separator();
+                ui.label("Outcomes");
+                ui.label(
+                    egui::RichText::new(format!(
+                        "keys reported by `{}` and where each one leads",
+                        spec.system
+                    ))
+                    .small()
+                    .weak(),
+                );
+
+                let rows = crate::outcomes::rows(editor.story(), &selected);
+                let targets: Vec<String> = editor
+                    .story()
+                    .nodes
+                    .keys()
+                    .map(|id| id.to_string())
+                    .collect();
+                let mut retarget: Option<(String, NodeId)> = None;
+                let mut outcome_error: Option<String> = None;
+                let mut unmapped: Option<String> = None;
+
+                for row in &rows {
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.add(
+                                egui::Label::new(egui::RichText::new(&row.outcome).monospace())
+                                    .truncate(),
+                            );
+                            ui.label("to");
+
+                            let mut target = row.to.to_string();
+                            let original = target.clone();
+                            egui::ComboBox::from_id_salt(("outcome", &row.outcome))
+                                .selected_text(&target)
+                                .show_ui(ui, |ui| {
+                                    for id in &targets {
+                                        ui.selectable_value(&mut target, id.clone(), id);
+                                    }
+                                });
+                            if target != original {
+                                retarget = Some((row.outcome.clone(), NodeId::from(target)));
+                            }
+
+                            if ui
+                                .button("Del")
+                                .on_hover_text("Remove this mapping")
+                                .clicked()
+                            {
+                                unmapped = Some(row.outcome.clone());
+                            }
+                        });
+                    });
+                }
+
+                // Deferred: the loop above holds `editor`, and `set_status` borrows the
+                // whole app rather than one field, so it cannot run here. Same discipline
+                // as edits: collect during layout, act after.
+                if let Some((outcome, to)) = retarget {
+                    match crate::outcomes::set(&selected, &outcome, &to) {
+                        Ok(op) => app.pending.push(op),
+                        Err(err) => outcome_error = Some(err),
+                    }
+                }
+                if let Some(outcome) = unmapped {
+                    app.pending
+                        .push(crate::outcomes::remove(&selected, &outcome));
+                }
+
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut app.new_outcome)
+                            .hint_text("outcome key")
+                            .desired_width(140.0),
+                    );
+                    ui.label("to");
+
+                    // A new mapping defaults to the story's start node: a valid
+                    // placeholder the author will change, rather than an empty combo
+                    // that silently does nothing when clicked.
+                    if ui.button("+").clicked() {
+                        let target = editor.story().start.clone();
+                        match crate::outcomes::set(&selected, &app.new_outcome, &target) {
+                            Ok(op) => {
+                                app.pending.push(op);
+                                app.new_outcome.clear();
+                            }
+                            Err(err) => outcome_error = Some(err),
+                        }
+                    }
+                });
+
+                // Field-level writes, not `set_status`: that method borrows all of
+                // `app`, and `editor` still holds a borrow of `app.editor` here.
+                if let Some(message) = outcome_error {
+                    app.status = message;
+                    app.status_is_error = true;
+                }
+            }
         });
     });
 }
@@ -730,12 +856,9 @@ fn exit_form(ui: &mut egui::Ui, exit: &mut Exit, changed: &mut bool, editor: &Ed
                     spec.system = rustory_core::SystemId::from(system);
                     *changed = true;
                 }
-                // Outcomes need a mapping editor; until then the editor shows what is
-                // there and points at the CLI, which can already express it.
-                ui.label(format!(
-                    "{} outcome(s) — edit mappings with `rustory edit --op SetExit`",
-                    spec.outcomes.len()
-                ));
+                // The mappings themselves are drawn below the exit form, where they get
+                // room for a table. Saying so beats an empty row here.
+                ui.label(format!("{} outcome(s), mapped below", spec.outcomes.len()));
             }
         }
     });
