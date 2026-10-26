@@ -1,0 +1,18 @@
+[package]
+name = "rustory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "RuStory CLI — run a story, validate a script."
+
+[[bin]]
+name = "rustory"
+path = "src/main.rs"
+
+[dependencies]
+rustory-core = { workspace = true }
+rustory-script = { workspace = true }
+rustory-render = { workspace = true }
+winit = { workspace = true }
+wgpu = { workspace = true }

@@ -1,0 +1,11 @@
+[package]
+name = "rustory-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "RuStory narrative core: story model, narrative state machine, gameplay contract. No rendering, no ECS."
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,14 @@
+[package]
+name = "rustory-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "RuStory renderer: a 2D quad/text pipeline built directly on wgpu. No third-party engine."
+
+[dependencies]
+rustory-core = { workspace = true }
+wgpu = { workspace = true }
+glyphon = { workspace = true }
+bytemuck = { workspace = true }
+pollster = { workspace = true }

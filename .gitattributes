@@ -1,0 +1,12 @@
+# Normalize to LF in the repository; check out native line endings on Windows.
+* text=auto eol=lf
+
+*.rs   text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+*.ron  text eol=lf
+
+*.png  binary
+*.jpg  binary
+*.ogg  binary
+*.ttf  binary

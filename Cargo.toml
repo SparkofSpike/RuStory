@@ -1,0 +1,41 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/rustory-core",
+    "crates/rustory-script",
+    "crates/rustory-render",
+    "apps/rustory",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+repository = "https://github.com/OWNER/rustory"
+description = "RuStory — Rust-native visual novel engine with composable gameplay"
+
+[workspace.dependencies]
+rustory-core = { path = "crates/rustory-core" }
+rustory-script = { path = "crates/rustory-script" }
+rustory-render = { path = "crates/rustory-render" }
+
+serde = { version = "1", features = ["derive"] }
+ron = "0.11"
+thiserror = "2"
+
+# 平台适配层：只借用操作系统抽象的现成实现，不自研。
+# 引擎自身的世界模型、调度、状态机、剧本格式、玩法契约全部在 rustory-core 里自研。
+winit = "0.30"
+wgpu = "30"
+glyphon = "0.12"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+
+[profile.dev]
+# 自研代码保持低优化以维持增量编译速度。
+opt-level = 1
+
+[profile.dev.package."*"]
+# 依赖（尤其 wgpu/naga）用高优化，否则运行帧率会低到无法判断渲染是否正确。
+opt-level = 3

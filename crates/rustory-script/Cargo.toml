@@ -1,0 +1,13 @@
+[package]
+name = "rustory-script"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "RuStory story script format: RON schema, loading, and referential validation."
+
+[dependencies]
+rustory-core = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+thiserror = { workspace = true }
