@@ -7,6 +7,7 @@
 
 mod assets;
 mod driver;
+mod edit_cli;
 mod play;
 mod scene;
 
@@ -42,6 +43,15 @@ USAGE:
     rustory play <story.ron> [options]  Play it in a window
     rustory save <story.ron> [options]  Advance, then write a save file
     rustory resume <story.ron> <save>   Load a save and report where it resumes
+    rustory editor [story.ron]          Open the visual editor
+
+EDITING (the agent interface):
+    rustory ops [--json]                List every edit operation
+    rustory inspect <story.ron> [--json]  Print the story as data
+    rustory edit <story.ron> --op <json>  Apply one operation and save
+    rustory edit <story.ron> --ops <json-file>  Apply a batch
+        --dry-run      Validate without writing the file
+        --json         Machine-readable output
 
 OPTIONS for shot / play / save / resume:
     --assets <dir>     Where sprite and background PNGs live (default: assets)
@@ -82,6 +92,15 @@ fn run(args: &[String]) -> Result<(), String> {
         "play" => play::run(&args[1..]),
         "save" => save_cmd(&args[1..]),
         "resume" => resume_cmd(&args[1..]),
+        "ops" => finish(edit_cli::ops(args.iter().any(|arg| arg == "--json"))),
+        "inspect" => {
+            let path = args.get(1).ok_or("inspect needs a story path")?;
+            finish(edit_cli::inspect(
+                Path::new(path),
+                args.iter().any(|arg| arg == "--json"),
+            ))
+        }
+        "edit" => edit_cmd(&args[1..]),
         "help" | "--help" | "-h" => {
             print!("{USAGE}");
             Ok(())
@@ -405,3 +424,69 @@ fn resume_cmd(args: &[String]) -> Result<(), String> {
 
 #[allow(dead_code)]
 fn unused(_: Rgba8Image) {}
+
+/// Turn a report into an exit code.
+///
+/// A single place so every editing command agrees on what failure looks like: an
+/// agent checking `$?` and an agent reading `"ok": false` must never disagree.
+fn finish(report: edit_cli::Report) -> Result<(), String> {
+    if report.ok {
+        if report.problems.is_empty() {
+            println!("{}", report.message);
+        } else {
+            println!("{}", report.problems.join("; "));
+        }
+        Ok(())
+    } else {
+        Err(report.message)
+    }
+}
+
+/// `rustory edit <story.ron> (--op JSON | --ops FILE) [--dry-run] [--json]`
+fn edit_cmd(args: &[String]) -> Result<(), String> {
+    let mut story_path: Option<PathBuf> = None;
+    let mut single: Option<String> = None;
+    let mut batch: Option<PathBuf> = None;
+    let mut dry_run = false;
+    let mut as_json = false;
+
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--op" => {
+                index += 1;
+                single = Some(args.get(index).ok_or("--op needs JSON")?.clone());
+            }
+            "--ops" => {
+                index += 1;
+                batch = Some(PathBuf::from(args.get(index).ok_or("--ops needs a path")?));
+            }
+            "--dry-run" => dry_run = true,
+            "--json" => as_json = true,
+            other if other.starts_with("--") => return Err(format!("unknown option `{other}`")),
+            other => {
+                if story_path.is_some() {
+                    return Err(format!("unexpected argument `{other}`"));
+                }
+                story_path = Some(PathBuf::from(other));
+            }
+        }
+        index += 1;
+    }
+
+    let story_path = story_path.ok_or("edit needs a story path")?;
+
+    // Accepting both would make the order of application a guess.
+    let ops = match (single, batch) {
+        (Some(_), Some(_)) => return Err("use either --op or --ops, not both".into()),
+        (None, None) => return Err("edit needs --op <json> or --ops <file>".into()),
+        (Some(json), None) => vec![edit_cli::parse_op(&json)?],
+        (None, Some(path)) => {
+            let text = std::fs::read_to_string(&path)
+                .map_err(|err| format!("cannot read {}: {err}", path.display()))?;
+            edit_cli::parse_ops(&text)?
+        }
+    };
+
+    finish(edit_cli::edit(&story_path, &ops, !dry_run, as_json))
+}
