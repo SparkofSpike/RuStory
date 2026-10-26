@@ -1,17 +1,31 @@
-//! RuStory's renderer: a small 2D quad + text pipeline written directly against
+//! RuStory's renderer: a 2D quad and text pipeline written directly against
 //! `wgpu`. There is no third-party engine underneath — only the platform layer
 //! (window, GPU backend, font rasterizer) is borrowed.
 //!
-//! Nothing in this crate is allowed to leak into [`rustory_core`]: the core owns
-//! game state and knows nothing about pixels.
+//! The crate consumes a [`Frame`], a plain data draw list. It has no notion of
+//! stories, characters or choices: the application translates game state into
+//! quads and text runs, and this crate turns them into pixels. That keeps game
+//! semantics out of the renderer and lets layout be asserted in tests without a
+//! GPU.
+//!
+//! Rendering can be verified headlessly: [`Renderer::render_offscreen`] returns
+//! an [`Rgba8Image`] that can be saved as a PNG, which is how a frame gets
+//! inspected in a place where nobody can look at a window.
 
 #![forbid(unsafe_code)]
 
+mod frame;
+mod image;
+mod renderer;
+
+pub use frame::{Frame, Quad, Rect, Rgba, TextItem, TextureId, Uv};
+pub use image::{ImageError, Rgba8Image};
+pub use renderer::{RenderError, Renderer, TARGET_FORMAT};
+
 /// Probes the GPU backend without opening a window.
 ///
-/// This exists so `cargo run` can tell "no usable adapter on this machine" apart
-/// from "our renderer has a bug" in one line, and so CI can smoke-test the
-/// graphics stack headlessly.
+/// Kept separate from [`Renderer`] so a startup check can report "no adapter on
+/// this machine" in one line, distinct from a renderer bug.
 pub fn probe_gpu() -> Result<String, String> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -26,7 +40,7 @@ pub fn probe_gpu() -> Result<String, String> {
     Ok(format!("{} [{} / {:?}]", info.name, info.driver, info.backend))
 }
 
-/// Probes the text stack: font discovery plus shaping readiness.
+/// Probes the text stack: font discovery.
 pub fn probe_text() -> String {
     let font_system = glyphon::FontSystem::new();
     format!("{} system fonts discovered", font_system.db().len())

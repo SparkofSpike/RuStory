@@ -4,11 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "RuStory renderer: a 2D quad/text pipeline built directly on wgpu. No third-party engine."
+description = "RuStory renderer: a 2D quad and text pipeline on wgpu. Consumes a draw list, knows nothing about stories."
 
 [dependencies]
-rustory-core = { workspace = true }
 wgpu = { workspace = true }
 glyphon = { workspace = true }
 bytemuck = { workspace = true }
 pollster = { workspace = true }
+png = { workspace = true }
+image = { workspace = true }

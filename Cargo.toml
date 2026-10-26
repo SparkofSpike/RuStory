@@ -33,6 +33,8 @@ wgpu = "30"
 glyphon = "0.12"
 pollster = "0.4"
 bytemuck = { version = "1", features = ["derive"] }
+png = "0.18"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [profile.dev]
 # Workspace crates stay at low optimization for fast incremental builds.
