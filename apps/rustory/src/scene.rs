@@ -107,7 +107,9 @@ impl Scene<'_> {
     }
 
     fn push_actors(&self, frame: &mut Frame) {
-        for (actor, state) in self.narrative.stage().actors() {
+        // The actor id is not needed here: the pose names the texture. The stage
+        // keeps the ids so a later pass can still tell who is on screen.
+        for state in self.narrative.stage().actors().values() {
             // Actors without art are skipped rather than drawn as a placeholder:
             // a missing sprite should look like a missing sprite, not a bug.
             let Some(id) = self.textures.resolve(&state.pose) else {
@@ -124,7 +126,6 @@ impl Scene<'_> {
             // Feet rest on the dialogue box so a sprite never floats mid-air.
             let y = DIALOGUE_BOX.y - height;
 
-            let _ = actor;
             frame.push_quad(Quad::textured(
                 Rect::new(x, y, width, height),
                 id,

@@ -59,7 +59,8 @@ define_id! {
 }
 
 define_id! {
-    /// A registered gameplay system, e.g. `timer.countdown`.
+    /// A registered gameplay system. The core treats this as an opaque handle: it
+    /// looks systems up by id and never branches on which one it got.
     SystemId
 }
 
