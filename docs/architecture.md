@@ -26,6 +26,7 @@ gameplay system holds any.
         apps/rustory          (CLI, player, agent interface)
         ├── rustory-edit       (operations: shared by both front-ends)
         ├── rustory-render
+        ├── rustory-audio      (fade state machine; no device)
         ├── rustory-script
         ├── rustory-gameplay-timer
         ├── rustory-gameplay-quiz
@@ -33,6 +34,7 @@ gameplay system holds any.
                 ▲
    rustory-edit ─┘
    rustory-render ─┘
+   rustory-audio ─┘
    rustory-script ─┘
    rustory-gameplay-timer ─┘
    rustory-gameplay-quiz ──┘
@@ -47,6 +49,7 @@ it. Cargo's dependency declarations enforce this, not discipline.
 | `rustory-script` | RON parsing, structural validation | Play, advance state |
 | `rustory-edit` | Document, typed operations, undo, validation | Know about a UI, or about pixels |
 | `rustory-render` | Draw list → pixels | Know what a story, actor or choice is |
+| `rustory-audio` | Fade and track-change state machine | Open a device, decode a file, or know what a scene is |
 | `rustory-gameplay-timer` | One concrete gameplay system | Read the stage or the story graph |
 | `rustory-gameplay-quiz` | A second one, with state no counter could hold | Ditto |
 
@@ -215,7 +218,9 @@ GPU is an environment fact, not a regression.
 
 - **No rollback history.** `SaveState` supports it, but nothing keeps a ring of
   past snapshots yet — that needs UI for picking a point, not just storage.
-- **No audio.**
+- **No audio mixing.** One music track plus one-shot effects, both driven by beats. Layered
+  ambience needs a mixer, and a mixer written before a story asks for one is speculative. See
+  ADR 0009.
 - **No channel for gameplay to read narrative state.** A system cannot tell which
   dialogue round it is in; it has to be passed that through config. When this is
   needed, add a read-only snapshot — do not open up `Narrative`.
