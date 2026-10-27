@@ -243,11 +243,7 @@ mod tests {
                 exit: Exit::End { ending: None },
             },
         );
-        Story {
-            meta: Default::default(),
-            start: NodeId::from("start"),
-            nodes,
-        }
+        Story::new("start", nodes)
     }
 
     fn scratch(name: &str) -> std::path::PathBuf {

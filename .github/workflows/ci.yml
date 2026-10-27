@@ -84,6 +84,29 @@ jobs:
       - name: Validate the demo story
         run: cargo run -q -p rustory-vn -- check stories/demo.ron
 
+      # The translated story is the only place the locale tables are exercised end to end.
+      # Checking completeness alone would pass a file whose keys resolve to nothing.
+      - name: Validate the translated story, and that each language is complete
+        run: |
+          cargo run -q -p rustory-vn -- check stories/localised.ron | tee /tmp/localised.txt
+          grep -q "3 language(s)" /tmp/localised.txt
+          test "$(grep -c 'complete' /tmp/localised.txt)" -eq 3
+
+      - name: Each language produces its own lines, not English
+        run: |
+          cargo run -q -p rustory-vn -- transcript stories/localised.ron --language ja > /tmp/ja.txt
+          cargo run -q -p rustory-vn -- transcript stories/localised.ron --language zh-Hans > /tmp/zh.txt
+          cargo run -q -p rustory-vn -- transcript stories/localised.ron --language en > /tmp/en.txt
+          # Three different files, and each contains a character only it should.
+          grep -q "最終電車" /tmp/ja.txt
+          grep -q "末班车" /tmp/zh.txt
+          grep -q "last train" /tmp/en.txt
+          ! grep -q "last train" /tmp/ja.txt
+
+      - name: A language the story does not have is refused
+        run: |
+          ! cargo run -q -p rustory-vn -- transcript stories/localised.ron --language fr
+
       - name: The check report parses as JSON
         run: |
           cargo run -q -p rustory-vn -- check stories/demo.ron --json \
@@ -152,6 +175,13 @@ jobs:
 
       - name: Render a frame by position
         run: cargo run -q -p rustory-vn -- shot stories/demo.ron --at honest:2 --out /tmp/frame.png
+
+      - name: Render a frame in a chosen language
+        run: |
+          cargo run -q -p rustory-vn -- shot stories/localised.ron --language ja --out /tmp/ja.png
+          cargo run -q -p rustory-vn -- shot stories/localised.ron --language en --out /tmp/en.png
+          # The frames must differ: identical bytes would mean the language was ignored.
+          ! cmp -s /tmp/ja.png /tmp/en.png
 
       - name: Play the story headlessly
         run: cargo run -q -p rustory-vn -- transcript stories/demo.ron

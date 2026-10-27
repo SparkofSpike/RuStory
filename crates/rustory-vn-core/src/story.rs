@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{ActorId, NodeId, OutcomeKey, SystemId};
+use crate::text::{Locales, Text};
 
 /// Where an actor stands on stage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,7 +36,7 @@ pub enum Beat {
     /// Speak a line. `speaker` is `None` for narration.
     Say {
         speaker: Option<ActorId>,
-        text: String,
+        text: Text,
     },
     /// Put an actor on stage, or move one already there.
     ShowActor {
@@ -70,7 +71,7 @@ pub enum Beat {
 /// A branch the player can pick.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Choice {
-    pub label: String,
+    pub label: Text,
     pub to: NodeId,
 }
 
@@ -102,7 +103,7 @@ pub enum Exit {
     /// Stop and let the player pick.
     Choose {
         #[serde(default)]
-        prompt: Option<String>,
+        prompt: Option<Text>,
         choices: Vec<Choice>,
     },
     /// Suspend the narrative and let a gameplay system drive.
@@ -134,9 +135,35 @@ pub struct Story {
     /// Entry point. Must exist in `nodes`.
     pub start: NodeId,
     pub nodes: BTreeMap<NodeId, Node>,
+    /// Translations, by language tag and then by key.
+    ///
+    /// Empty for a story written in one language, which is the common case and costs nothing:
+    /// every `Text` is then a literal and no table is ever consulted.
+    #[serde(default)]
+    pub locales: Locales,
+    /// Which language to play when the caller does not say. Must be a key of `locales`.
+    #[serde(default)]
+    pub default_language: Option<String>,
 }
 
 impl Story {
+    /// A story with no translations, which is what a single-language project writes.
+    ///
+    /// A constructor rather than `..Default::default()`: `start` and `nodes` are the story, and
+    /// a `Default` that invented a start node would let a caller build a story that points at
+    /// nothing. This one exists so adding a story-level field later does not break every test
+    /// that builds one.
+    #[must_use]
+    pub fn new(start: impl Into<NodeId>, nodes: BTreeMap<NodeId, Node>) -> Self {
+        Self {
+            meta: StoryMeta::default(),
+            start: start.into(),
+            nodes,
+            locales: Locales::new(),
+            default_language: None,
+        }
+    }
+
     #[must_use]
     pub fn node(&self, id: &NodeId) -> Option<&Node> {
         self.nodes.get(id)
@@ -190,7 +217,137 @@ impl Story {
             }
         }
 
+        // Translation integrity, checked at load for the same reason as the references: a key
+        // with no text is a hole a player falls into, and finding it here means the author
+        // sees it before anyone else does.
+        if let Some(default) = &self.default_language
+            && !self.locales.contains_key(default)
+        {
+            return Err(CoreError::UnknownLanguage(default.clone()));
+        }
+        if let Some(key) = self.unknown_keys().into_iter().next() {
+            return Err(CoreError::UndefinedKey { key });
+        }
+
         Ok(())
+    }
+
+    /// Every language the story carries, in stable order.
+    #[must_use]
+    pub fn languages(&self) -> Vec<&str> {
+        self.locales.keys().map(String::as_str).collect()
+    }
+
+    /// Every key the script refers to, in the order a reader would meet it, without repeats.
+    ///
+    /// Used by the three questions worth asking about a translated story: which keys are
+    /// undefined everywhere, which are missing from one language, and which language to play.
+    #[must_use]
+    pub fn used_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = Vec::new();
+        let mut push = |text: &Text| {
+            if let Some(key) = text.as_key()
+                && !keys.iter().any(|seen| seen == key)
+            {
+                keys.push(key.to_owned());
+            }
+        };
+
+        for node in self.nodes.values() {
+            for beat in &node.beats {
+                if let Beat::Say { text, .. } = beat {
+                    push(text);
+                }
+            }
+            match &node.exit {
+                Exit::Choose { prompt, choices } => {
+                    if let Some(prompt) = prompt {
+                        push(prompt);
+                    }
+                    for choice in choices {
+                        push(&choice.label);
+                    }
+                }
+                Exit::End { .. } | Exit::Goto { .. } | Exit::Gameplay { .. } => {}
+            }
+        }
+        keys
+    }
+
+    /// Keys that no language defines. Each one is a typo in the script.
+    #[must_use]
+    pub fn unknown_keys(&self) -> Vec<String> {
+        crate::text::unknown_keys(&self.locales, &self.used_keys())
+    }
+
+    /// Keys `language` does not translate.
+    #[must_use]
+    pub fn missing_translations(&self, language: &str) -> Vec<String> {
+        crate::text::missing_translations(&self.locales, language, &self.used_keys())
+    }
+
+    /// The same story with every key replaced by `language`'s text.
+    ///
+    /// This is the only place a key becomes a string. Everything downstream - the state
+    /// machine, the renderer, the save format - works with a story that no longer has keys,
+    /// which is why none of them had to learn that translations exist.
+    ///
+    /// Fails when `language` is not in `locales` or when one key has no translation there, and
+    /// names the key: a story with a hole in it must not be playable.
+    pub fn localised(&self, language: &str) -> Result<Self, crate::error::CoreError> {
+        let Some(table) = self.locales.get(language) else {
+            return Err(crate::error::CoreError::UnknownLanguage(
+                language.to_owned(),
+            ));
+        };
+
+        let mut localised = self.clone();
+        localised.default_language = Some(language.to_owned());
+        // Kept so a localised story can still answer "what languages does this exist in",
+        // which a tool saving one back out needs.
+        let resolve = |text: &Text| -> Result<Text, crate::error::CoreError> {
+            text.resolve(table)
+                .map_err(|key| crate::text::missing_translation(language, &key))
+        };
+
+        for node in localised.nodes.values_mut() {
+            for beat in &mut node.beats {
+                if let Beat::Say { text, .. } = beat {
+                    *text = resolve(text)?;
+                }
+            }
+            match &mut node.exit {
+                Exit::Choose { prompt, choices } => {
+                    if let Some(prompt) = prompt {
+                        *prompt = resolve(prompt)?;
+                    }
+                    for choice in choices {
+                        choice.label = resolve(&choice.label)?;
+                    }
+                }
+                Exit::End { .. } | Exit::Goto { .. } | Exit::Gameplay { .. } => {}
+            }
+        }
+
+        Ok(localised)
+    }
+
+    /// The language a caller gets when it does not choose one.
+    ///
+    /// `default_language` when it names a table that exists, otherwise the only language there
+    /// is, otherwise `None` - which means the story is not translated and should be played as
+    /// written.
+    #[must_use]
+    pub fn preferred_language(&self) -> Option<&str> {
+        if let Some(default) = &self.default_language
+            && self.locales.contains_key(default)
+        {
+            return Some(default.as_str());
+        }
+        if self.locales.len() == 1 {
+            return self.locales.keys().next().map(String::as_str);
+        }
+        None
     }
 
     /// Total number of beats, used by tests and progress reporting.
@@ -199,30 +356,89 @@ impl Story {
         self.nodes.values().map(|node| node.beats.len()).sum()
     }
 
-    /// A stable fingerprint of the story's content.
+    /// A stable fingerprint of the story's **shape**.
     ///
-    /// Saves record this so loading an old save against an edited script fails
-    /// loudly instead of resuming at a node whose beats have shifted under the
-    /// player. FNV-1a over the RON form: `BTreeMap` iterates in key order, so the
-    /// same story always hashes the same, across processes and compilations.
+    /// Saves record this so loading an old save against an edited script fails loudly instead
+    /// of resuming at a node whose beats have shifted under the player.
     ///
-    /// This is a change detector, not a security primitive. Nothing here defends
-    /// against a deliberately crafted collision; a save file is the player's own
-    /// data.
+    /// Shape, not content, and the difference is deliberate. A save remembers a node and a
+    /// beat index; what matters is that the index still means the same thing, which depends
+    /// on the *number and order of beats* and on where the branches go — not on the words. Two
+    /// consequences follow, and both are wanted:
+    ///
+    /// * Rewriting dialogue, or switching language, leaves existing saves valid. Invalidating
+    ///   them would punish an author for fixing a typo and a player for changing a setting.
+    /// * Inserting a beat, deleting a node or repointing a branch changes the fingerprint,
+    ///   because a saved index would then point somewhere else.
+    ///
+    /// FNV-1a over a canonical description, with `BTreeMap` iterating in key order, so the
+    /// same shape always hashes the same across processes and compilations.
+    ///
+    /// This is a change detector, not a security primitive. Nothing here defends against a
+    /// deliberately crafted collision; a save file is the player's own data.
     #[must_use]
     pub fn checksum(&self) -> u64 {
-        // RON can only fail on types it cannot represent, and this type is plain
-        // data. Falling back to zero would silently disable the check, so a
-        // failure is surfaced as a checksum that can never match a real one.
-        let Ok(encoded) = ron::to_string(self) else {
-            return u64::MAX;
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut feed = |bytes: &[u8]| {
+            for byte in bytes {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
         };
 
-        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for byte in encoded.as_bytes() {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        feed(self.start.as_str().as_bytes());
+        for (id, node) in &self.nodes {
+            feed(id.as_str().as_bytes());
+            // A separator keeps `ab` + `c` from hashing like `a` + `bc`.
+            feed(b"\x1f");
+            feed(&(node.beats.len() as u64).to_le_bytes());
+            for beat in &node.beats {
+                feed(beat_kind(beat).as_bytes());
+                feed(b"\x1f");
+            }
+            match &node.exit {
+                Exit::End { .. } => feed(b"end"),
+                Exit::Goto { to } => {
+                    feed(b"goto\x1f");
+                    feed(to.as_str().as_bytes());
+                }
+                Exit::Choose { choices, .. } => {
+                    feed(b"choose\x1f");
+                    feed(&(choices.len() as u64).to_le_bytes());
+                    for choice in choices {
+                        feed(choice.to.as_str().as_bytes());
+                        feed(b"\x1f");
+                    }
+                }
+                Exit::Gameplay { spec } => {
+                    feed(b"gameplay\x1f");
+                    feed(spec.system.as_str().as_bytes());
+                    for (outcome, to) in &spec.outcomes {
+                        feed(b"\x1f");
+                        feed(outcome.as_str().as_bytes());
+                        feed(b"\x1e");
+                        feed(to.as_str().as_bytes());
+                    }
+                }
+            }
+            feed(b"\x1d");
         }
         hash
+    }
+}
+
+/// The kind of beat, as a stable tag.
+///
+/// Only the variant, never its text: a rewritten line must not invalidate a save, but a beat
+/// inserted before the cursor must. The tag is spelled out rather than derived from a `Debug`
+/// string so a rename in the source cannot silently change what a fingerprint means.
+fn beat_kind(beat: &Beat) -> &'static str {
+    match beat {
+        Beat::Say { .. } => "say",
+        Beat::ShowActor { .. } => "show",
+        Beat::HideActor { .. } => "hide",
+        Beat::SetBackground { .. } => "background",
+        Beat::Music { .. } => "music",
+        Beat::Sound { .. } => "sound",
     }
 }

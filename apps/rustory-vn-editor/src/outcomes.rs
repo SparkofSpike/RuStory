@@ -78,7 +78,7 @@ pub fn remove(node: &NodeId, outcome: &str) -> EditOp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustory_vn_core::{Exit, GameplaySpec, Node, StoryMeta, SystemId};
+    use rustory_vn_core::{Exit, GameplaySpec, Node, SystemId};
     use std::collections::BTreeMap;
 
     fn gameplay_story() -> Story {
@@ -101,11 +101,7 @@ mod tests {
                 },
             },
         );
-        Story {
-            meta: StoryMeta::default(),
-            start: NodeId::from("play"),
-            nodes,
-        }
+        Story::new("play", nodes)
     }
 
     #[test]

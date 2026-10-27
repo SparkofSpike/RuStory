@@ -19,6 +19,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0008](0008-editor-architecture.md) | The editor is an operation layer with two front-ends | Accepted, implemented | How do a GUI and an agent edit the same story? |
 | [0009](0009-audio-as-beats.md) | Sound is a beat; a one-shot is an event, music is state | Accepted, implemented | When and how does the engine make noise? |
 | [0010](0010-multiple-documents.md) | Several documents, one window | Accepted, implemented | How are two chapters open at once? |
+| [0011](0011-localisation.md) | Text has a name, and the engine resolves it | Accepted, implemented | How does a story ship in three languages? |
 
 ## Status meanings
 

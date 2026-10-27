@@ -56,7 +56,7 @@ pub mod prelude {
     pub use crate::{Document, EditError, Editor, HistoryEntry};
     pub use rustory_vn_core::{
         ActorId, Beat, Choice, Exit, GameplaySpec, Node, NodeId, OutcomeKey, Slot, Story,
-        StoryMeta, SystemId,
+        StoryMeta, SystemId, Text,
     };
 }
 

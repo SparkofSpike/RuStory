@@ -271,7 +271,7 @@ pub fn mapped_outcomes(story: &Story) -> BTreeMap<String, Vec<OutcomeKey>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustory_vn_core::{Beat, Exit, Node, StoryMeta};
+    use rustory_vn_core::{Beat, Exit, Node};
 
     fn demo() -> Story {
         let text = std::fs::read_to_string(
@@ -345,11 +345,7 @@ mod tests {
                 },
             },
         );
-        let story = Story {
-            meta: StoryMeta::default(),
-            start: NodeId::from("loop"),
-            nodes,
-        };
+        let story = Story::new("loop", nodes);
 
         let err = transcript(story, 1000).expect_err("must report");
         assert!(err.contains("revisits node"), "unexpected error: {err}");

@@ -9,7 +9,7 @@
 //!   exactly the value the GUI would construct, so an agent and a person are
 //!   editing through the same code path and cannot disagree about the result.
 
-use rustory_vn_core::{Beat, Choice, Exit, NodeId};
+use rustory_vn_core::{Beat, Choice, Exit, NodeId, Text};
 use serde::{Deserialize, Serialize};
 
 /// A single edit.
@@ -86,7 +86,7 @@ pub enum EditOp {
     /// Append an option. The node's exit must already be a choice.
     AddChoice {
         node: NodeId,
-        label: String,
+        label: Text,
         to: NodeId,
     },
     /// Change an option's label, destination, or both.
@@ -97,7 +97,7 @@ pub enum EditOp {
         node: NodeId,
         index: usize,
         #[serde(default)]
-        label: Option<String>,
+        label: Option<Text>,
         #[serde(default)]
         to: Option<NodeId>,
     },

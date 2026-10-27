@@ -1,0 +1,97 @@
+// A story written in three languages, to show what the format costs and what it buys.
+//
+// Everything a player reads is a key; the words live in `locales` below. Compare this file
+// with `demo.ron`, which is written in one language and pays nothing for the feature — no
+// table, no keys, no `default_language`.
+//
+// Switching language is one flag:
+//
+//   rustory play stories/localised.ron --language ja
+//   rustory shot stories/localised.ron --language zh-Hans --out frame.png
+//
+// A save is a node and a beat index, neither of which is textual, so a save made in English
+// resumes in Japanese at the same line.
+Story(
+    meta: (
+        title: Some("The Last Train"),
+        author: Some("RuStory"),
+    ),
+    start: "platform",
+
+    nodes: {
+        "platform": (
+            beats: [
+                SetBackground(image: Some("bg_classroom.png")),
+                Music(track: Some("classroom"), fade_ms: Some(1200)),
+                Say(speaker: None, text: (key: "platform.narration")),
+                Say(speaker: Some("yuki"), text: (key: "platform.line1")),
+                Say(speaker: Some("kai"), text: (key: "platform.line2")),
+            ],
+            exit: Choose(
+                prompt: Some((key: "platform.prompt")),
+                choices: [
+                    (label: (key: "platform.stay"), to: "stay"),
+                    (label: (key: "platform.go"), to: "go"),
+                ],
+            ),
+        ),
+
+        "stay": (
+            beats: [
+                Say(speaker: Some("yuki"), text: (key: "stay.line")),
+                Sound(clip: "chime", volume: Some(0.5)),
+            ],
+            exit: End(ending: Some("together")),
+        ),
+
+        "go": (
+            beats: [
+                Music(track: None, fade_ms: Some(900)),
+                Say(speaker: None, text: (key: "go.narration")),
+                Sound(clip: "door"),
+            ],
+            exit: End(ending: Some("alone")),
+        ),
+    },
+
+    // The order of the tables does not matter; `default_language` is what decides when the
+    // player does not say. Every key must exist in at least one table, and every declared
+    // language must be complete for a story to be playable in it — `rustory check` says which
+    // entries are short.
+    default_language: Some("en"),
+
+    locales: {
+        "en": {
+            "platform.narration": "The last train has gone. The platform is empty except for us.",
+            "platform.line1": "You stayed.",
+            "platform.line2": "So did you.",
+            "platform.prompt": "The barrier closes in a minute.",
+            "platform.stay": "Stay a little longer",
+            "platform.go": "Run for it",
+            "stay.line": "Then we will walk home the long way.",
+            "go.narration": "The barrier took the coin, and the platform fell behind.",
+        },
+
+        "zh-Hans": {
+            "platform.narration": "末班车已经走了。站台上只剩我们。",
+            "platform.line1": "你留下来了。",
+            "platform.line2": "你不也是。",
+            "platform.prompt": "闸机还有一分钟关。",
+            "platform.stay": "再待一会儿",
+            "platform.go": "跑过去",
+            "stay.line": "那我们绕远路回家。",
+            "go.narration": "闸机吞了硬币，站台被甩在了身后。",
+        },
+
+        "ja": {
+            "platform.narration": "最終電車は行ってしまった。ホームには私たちだけが残っている。",
+            "platform.line1": "残ったんだね。",
+            "platform.line2": "そっちこそ。",
+            "platform.prompt": "改札はあと一分で閉まる。",
+            "platform.stay": "もう少しだけ",
+            "platform.go": "走る",
+            "stay.line": "じゃあ、遠回りして帰ろう。",
+            "go.narration": "改札が硬貨を飲み込み、ホームは後ろに消えた。",
+        },
+    },
+)

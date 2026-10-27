@@ -202,7 +202,7 @@ impl Document {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustory_vn_core::{Exit, Node, NodeId, StoryMeta};
+    use rustory_vn_core::{Exit, Node, NodeId};
 
     fn story() -> Story {
         let mut nodes = std::collections::BTreeMap::new();
@@ -213,11 +213,7 @@ mod tests {
                 exit: Exit::End { ending: None },
             },
         );
-        Story {
-            meta: StoryMeta::default(),
-            start: NodeId::from("start"),
-            nodes,
-        }
+        Story::new("start", nodes)
     }
 
     fn scratch(name: &str) -> PathBuf {

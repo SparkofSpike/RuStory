@@ -62,6 +62,8 @@ OPTIONS for shot / play / save / resume:
     --finish           resume: keep playing to an ending instead of reporting
     --font <family>    Typeface for all text; load files from <assets>/fonts first
                        (no --font means the platform's default sans-serif)
+    --language <tag>   Play a translated story in this language (e.g. en, zh-Hans);
+                       without it the story's own default_language decides
 ";
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -77,10 +79,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let as_json = args.iter().any(|arg| arg == "--json");
             check(Path::new(path), as_json)
         }
-        "transcript" => {
-            let path = args.get(1).ok_or("transcript needs a story path")?;
-            transcript(Path::new(path))
-        }
+        "transcript" => transcript(&args[1..]),
         "gen-assets" => {
             let dir = args
                 .get(1)
@@ -160,6 +159,31 @@ fn load(path: &Path) -> Result<rustory_vn_core::Story, String> {
     })
 }
 
+/// Load a story ready to be played: in `language` when one is named, otherwise as the story
+/// asks.
+///
+/// The distinction matters for the editor's tools too: `check` wants the untranslated story so
+/// it can report on every language, while `play` and `shot` want one language resolved.
+fn load_for_playback(
+    path: &Path,
+    language: Option<&str>,
+) -> Result<rustory_vn_core::Story, String> {
+    let story = load(path)?;
+    let Some(language) = language else {
+        // `Narrative::new` resolves through `default_language`, so an unnamed language is not
+        // an omission here — it is "the story decides".
+        return Ok(story);
+    };
+    story.localised(language).map_err(|err| match err {
+        rustory_vn_core::CoreError::UnknownLanguage(tag) => format!(
+            "no language `{tag}` in {}; it has {:?}",
+            path.display(),
+            story.languages()
+        ),
+        other => other.to_string(),
+    })
+}
+
 fn check(path: &Path, as_json: bool) -> Result<(), String> {
     let story = match load(path) {
         Ok(story) => story,
@@ -212,6 +236,22 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
         ));
     }
 
+    // Translations, reported per language rather than as one "is it complete" boolean: a
+    // project shipping three languages needs to know which one is short, not that one is.
+    let languages: Vec<String> = story.languages().into_iter().map(str::to_owned).collect();
+    let translations: Vec<serde_json::Value> = languages
+        .iter()
+        .map(|language| {
+            let missing = story.missing_translations(language);
+            serde_json::json!({
+                "language": language,
+                "keys": story.locales.get(language).map_or(0, std::collections::BTreeMap::len),
+                "missing": missing,
+            })
+        })
+        .collect();
+    let untranslated_keys = story.used_keys().len();
+
     if as_json {
         println!(
             "{}",
@@ -226,6 +266,10 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
                 "author": story.meta.author,
                 "missing_systems": missing,
                 "problems": problems,
+                "languages": languages,
+                "default_language": story.default_language,
+                "text_keys": untranslated_keys,
+                "translations": translations,
                 "outcomes": mappings
                     .iter()
                     .map(|(system, handles)| serde_json::json!({
@@ -249,6 +293,30 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
     if let Some(title) = &story.meta.title {
         println!("title: {title}");
     }
+    if !languages.is_empty() {
+        println!(
+            "{} text key(s), {} language(s){}",
+            untranslated_keys,
+            languages.len(),
+            story
+                .default_language
+                .as_ref()
+                .map(|default| format!(", default `{default}`"))
+                .unwrap_or_default()
+        );
+        for entry in &translations {
+            let language = entry["language"].as_str().unwrap_or("?");
+            let missing: Vec<&str> = entry["missing"]
+                .as_array()
+                .map(|keys| keys.iter().filter_map(|key| key.as_str()).collect())
+                .unwrap_or_default();
+            if missing.is_empty() {
+                println!("language {language}: complete");
+            } else {
+                println!("language {language}: missing {}", missing.join(", "));
+            }
+        }
+    }
     for problem in &problems {
         println!("problem: {problem}");
     }
@@ -261,8 +329,36 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn transcript(path: &Path) -> Result<(), String> {
-    let story = load(path)?;
+fn transcript(args: &[String]) -> Result<(), String> {
+    let mut story_path: Option<PathBuf> = None;
+    let mut language: Option<String> = None;
+
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--language" => {
+                index += 1;
+                language = Some(
+                    args.get(index)
+                        .ok_or("--language needs a tag such as `en` or `zh-Hans`")?
+                        .clone(),
+                );
+            }
+            other if other.starts_with("--") => {
+                return Err(format!("transcript: unknown option `{other}`"));
+            }
+            other => {
+                if story_path.is_some() {
+                    return Err(format!("transcript: unexpected argument `{other}`"));
+                }
+                story_path = Some(PathBuf::from(other));
+            }
+        }
+        index += 1;
+    }
+
+    let story_path = story_path.ok_or("transcript needs a story path")?;
+    let story = load_for_playback(&story_path, language.as_deref())?;
     let lines = driver::transcript(story, 500)?;
     for line in &lines {
         println!("{line}");
@@ -337,6 +433,8 @@ struct ShotOptions {
     advance: usize,
     /// Stop here instead of counting clicks: `node` or `node:beat`.
     at: Option<String>,
+    /// Which language to play a translated story in. Absent means the story's own default.
+    language: Option<String>,
     font: Option<String>,
 }
 
@@ -348,6 +446,7 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
         out: PathBuf::from("shot.png"),
         advance: 0,
         at: None,
+        language: None,
         font: None,
     };
 
@@ -377,6 +476,14 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
                         .clone(),
                 );
             }
+            "--language" => {
+                index += 1;
+                options.language = Some(
+                    args.get(index)
+                        .ok_or("--language needs a tag such as `en` or `zh-Hans`")?
+                        .clone(),
+                );
+            }
             "--font" => {
                 index += 1;
                 options.font = Some(args.get(index).ok_or("--font needs a family name")?.clone());
@@ -398,7 +505,7 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
 
 fn shot(args: &[String]) -> Result<(), String> {
     let options = parse_shot_args(args)?;
-    let story = load(&options.story)?;
+    let story = load_for_playback(&options.story, options.language.as_deref())?;
     let mut narrative = Narrative::new(story).map_err(|err| err.to_string())?;
     let mut registry = driver::default_registry();
 

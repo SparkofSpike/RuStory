@@ -20,11 +20,7 @@
 //!         exit: Exit::End { ending: None },
 //!     },
 //! );
-//! let story = Story {
-//!     meta: StoryMeta::default(),
-//!     start: NodeId::from("a"),
-//!     nodes,
-//! };
+//! let story = Story::new("a", nodes);
 //!
 //! let mut narrative = Narrative::new(story).expect("valid story");
 //! assert!(matches!(narrative.mode(), Mode::Revealing));
@@ -115,8 +111,15 @@ impl Narrative {
     ///
     /// Validation happens here, before a single frame, so a script with a broken
     /// reference fails at load with the offending node named.
+    ///
+    /// A story that uses text keys is localised here, using its own preferred language. The
+    /// reason is that no caller should have to remember to: a `Narrative` that walked a story
+    /// with unresolved keys would show keys on screen, which is the sort of bug that reaches
+    /// a player. A caller that wants a specific language calls [`Story::localised`] first and
+    /// this step becomes a no-op.
     pub fn new(story: Story) -> Result<Self, CoreError> {
         story.validate()?;
+        let story = resolve_for_playback(story)?;
         let start = story.start.clone();
         Self::begin(story, start)
     }
@@ -129,6 +132,7 @@ impl Narrative {
     /// author happens not to be looking at.
     pub fn at(story: Story, node: &NodeId) -> Result<Self, CoreError> {
         story.validate()?;
+        let story = resolve_for_playback(story)?;
         if !story.nodes.contains_key(node) {
             return Err(CoreError::NoSuchNode(node.to_string()));
         }
@@ -360,6 +364,10 @@ impl Narrative {
         let Beat::Say { speaker, text } = self.current_beat()? else {
             return None;
         };
+        // A story reaching playback has had every key resolved, so this is the line as the
+        // player will see it. `display_without_locale` rather than an unwrap: a key that
+        // somehow survived shows as the key, which is a visible bug instead of a panic.
+        let text = text.display_without_locale();
         let end = text
             .grapheme_indices(true)
             .nth(self.revealed)
@@ -402,7 +410,7 @@ impl Narrative {
         let Some(Beat::Say { text, .. }) = self.current_beat() else {
             return report;
         };
-        let total = text.graphemes(true).count();
+        let total = text.display_without_locale().graphemes(true).count();
 
         if chars_per_sec == 0 {
             self.revealed = total;
@@ -436,7 +444,7 @@ impl Narrative {
         match &self.mode {
             Mode::Revealing => {
                 if let Some(Beat::Say { text, .. }) = self.current_beat() {
-                    self.revealed = text.graphemes(true).count();
+                    self.revealed = text.display_without_locale().graphemes(true).count();
                 }
                 self.mode = Mode::AwaitingAdvance;
                 let speaker = match self.current_beat() {
@@ -672,8 +680,17 @@ impl Narrative {
                 Exit::Choose { prompt, choices } => {
                     self.push_event(NarrativeEvent::ChoiceOffered {
                         node: self.cursor.clone(),
-                        labels: choices.iter().map(|c| c.label.clone()).collect(),
+                        labels: choices
+                            .iter()
+                            .map(|c| c.label.display_without_locale().to_owned())
+                            .collect(),
                     });
+                    // `Mode` is runtime state, so its text is a string: a story that reached
+                    // playback has had every key resolved by `new`. The prompt is converted
+                    // here for the same reason the labels are.
+                    let prompt = prompt
+                        .as_ref()
+                        .map(|text| text.display_without_locale().to_owned());
                     self.mode = Mode::AwaitingChoice { prompt, choices };
                     return Ok(());
                 }
@@ -740,4 +757,29 @@ fn check_position(save: &SaveState, node: &Node) -> Result<(), CoreError> {
     };
 
     if fits { Ok(()) } else { Err(out_of_range()) }
+}
+
+/// Make a story playable: resolve text keys, or explain why that cannot be done.
+///
+/// Three cases, and the third is the one worth having:
+///
+/// * No keys. A story written in one language passes through untouched — the common case and
+///   the one that must never pay for a feature it does not use.
+/// * Keys and one obvious language. Resolved here so no caller has to remember to.
+/// * Keys and a choice to make. Refused with the language names, because guessing would put
+///   the wrong language on screen and the caller has the information to do better.
+fn resolve_for_playback(story: Story) -> Result<Story, CoreError> {
+    if story.used_keys().is_empty() {
+        return Ok(story);
+    }
+
+    match story.preferred_language() {
+        Some(language) => {
+            let language = language.to_owned();
+            story.localised(&language)
+        }
+        None => Err(CoreError::AmbiguousLanguage {
+            languages: story.languages().into_iter().map(str::to_owned).collect(),
+        }),
+    }
 }

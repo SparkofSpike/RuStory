@@ -32,6 +32,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut save_path = PathBuf::from("save.ron");
     let mut font = None;
     let mut mute = false;
+    let mut language: Option<String> = None;
 
     let mut index = 0;
     while index < args.len() {
@@ -49,6 +50,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 font = Some(args.get(index).ok_or("--font needs a family name")?.clone());
             }
             "--mute" => mute = true,
+            "--language" => {
+                index += 1;
+                language = Some(
+                    args.get(index)
+                        .ok_or("--language needs a tag such as `en` or `zh-Hans`")?
+                        .clone(),
+                );
+            }
             other if other.starts_with("--") => return Err(format!("unknown option `{other}`")),
             other => {
                 if story_path.is_some() {
@@ -62,6 +71,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     let story_path = story_path.ok_or("play needs a story path")?;
     let story = rustory_vn_script::load_story(&story_path).map_err(|err| err.to_string())?;
+    // A named language wins; otherwise the story picks, and `Narrative::new` resolves it.
+    let story = match &language {
+        Some(tag) => story.localised(tag).map_err(|err| match err {
+            rustory_vn_core::CoreError::UnknownLanguage(tag) => {
+                format!(
+                    "no language `{tag}`; this story has {:?}",
+                    story.languages()
+                )
+            }
+            other => other.to_string(),
+        })?,
+        None => story,
+    };
     let narrative = Narrative::new(story).map_err(|err| err.to_string())?;
 
     let event_loop = EventLoop::new().map_err(|err| err.to_string())?;

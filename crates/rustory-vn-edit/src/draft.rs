@@ -139,16 +139,12 @@ mod tests {
             Node {
                 beats: vec![rustory_vn_core::Beat::Say {
                     speaker: None,
-                    text: text.to_owned(),
+                    text: text.into(),
                 }],
                 exit: Exit::End { ending: None },
             },
         );
-        Story {
-            meta: rustory_vn_core::StoryMeta::default(),
-            start: NodeId::from("start"),
-            nodes,
-        }
+        Story::new("start", nodes)
     }
 
     #[test]

@@ -10,20 +10,19 @@ use std::collections::BTreeMap;
 use rustory_vn_core::prelude::*;
 
 fn make_story(nodes: Vec<(&str, Node)>, start: &str) -> Story {
-    Story {
-        meta: StoryMeta::default(),
-        start: NodeId::from(start),
-        nodes: nodes
+    Story::new(
+        start,
+        nodes
             .into_iter()
             .map(|(id, node)| (NodeId::from(id), node))
             .collect(),
-    }
+    )
 }
 
 fn say(text: &str) -> Beat {
     Beat::Say {
         speaker: None,
-        text: text.to_owned(),
+        text: text.into(),
     }
 }
 
@@ -190,10 +189,11 @@ fn a_save_from_a_different_story_is_refused() {
     let narrative = Narrative::new(original).expect("valid");
     let save = narrative.save(&GameplayRegistry::new()).expect("saves");
 
-    // One word changed; the checksum must notice.
+    // A beat inserted before the cursor: the saved index now means a different line, so the
+    // save must be refused rather than resumed somewhere else.
     let mut edited = branching_story();
     if let Some(node) = edited.nodes.get_mut(&NodeId::from("start")) {
-        node.beats[2] = say("Where were you? ");
+        node.beats.insert(1, say("An inserted line."));
     }
 
     let err =
@@ -202,6 +202,25 @@ fn a_save_from_a_different_story_is_refused() {
         matches!(err, CoreError::SaveStoryMismatch { .. }),
         "unexpected error: {err}"
     );
+}
+
+#[test]
+fn rewriting_a_line_keeps_a_save_valid() {
+    // The complement of the test above, and the reason the fingerprint covers shape and not
+    // text: a save remembers a position, and fixing a typo does not move anything. Refusing
+    // the save would punish an author for an edit that cannot misplace a player.
+    let original = branching_story();
+    let narrative = Narrative::new(original).expect("valid");
+    let save = narrative.save(&GameplayRegistry::new()).expect("saves");
+
+    let mut edited = branching_story();
+    if let Some(node) = edited.nodes.get_mut(&NodeId::from("start")) {
+        node.beats[2] = say("Where were you?  ");
+    }
+
+    let resumed = Narrative::from_save(edited, &save, &mut GameplayRegistry::new())
+        .expect("a rewritten line is still the same position");
+    assert_eq!(resumed.cursor(), &NodeId::from("start"));
 }
 
 #[test]

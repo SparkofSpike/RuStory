@@ -260,9 +260,10 @@ impl Preview {
         // panel needs them to draw buttons, and a cached string cannot say which branch
         // is on offer.
         let choices = match narrative.mode() {
-            Mode::AwaitingChoice { choices, .. } => {
-                choices.iter().map(|choice| choice.label.clone()).collect()
-            }
+            Mode::AwaitingChoice { choices, .. } => choices
+                .iter()
+                .map(|choice| choice.label.display_without_locale().to_owned())
+                .collect(),
             _ => Vec::new(),
         };
         let finished = matches!(narrative.mode(), Mode::Finished { .. });

@@ -38,11 +38,7 @@
 //!     exit: Exit::End { ending: None },
 //! });
 //!
-//! let mut narrative = Narrative::new(Story {
-//!     meta: StoryMeta::default(),
-//!     start: NodeId::from("start"),
-//!     nodes,
-//! })?;
+//! let mut narrative = Narrative::new(Story::new("start", nodes))?;
 //!
 //! // The background applied immediately; the line is still revealing.
 //! assert_eq!(narrative.stage().background(), Some("school.ron"));
@@ -65,6 +61,7 @@ mod narrative;
 mod save;
 mod stage;
 mod story;
+mod text;
 
 pub use error::CoreError;
 pub use event::{NarrativeEvent, TickReport};
@@ -77,13 +74,14 @@ pub use narrative::{LineView, Mode, Narrative};
 pub use save::{GameplaySave, SAVE_VERSION, SaveState};
 pub use stage::{ActorOnStage, Stage};
 pub use story::{Beat, Choice, Exit, GameplaySpec, Node, Slot, Story, StoryMeta};
+pub use text::{LocaleTable, Locales, Text, is_valid_language_tag};
 
 /// The types almost every caller needs.
 pub mod prelude {
     pub use crate::{
         ActorId, Beat, Choice, CoreError, Exit, GameplayContext, GameplayInput, GameplayRegistry,
-        GameplaySave, GameplaySpec, GameplaySystem, LineView, Mode, Narrative, NarrativeEvent,
-        Node, NodeId, OutcomeKey, SAVE_VERSION, SaveState, Slot, Stage, Stats, Story, StoryMeta,
-        SystemId, TickReport, decode_state, encode_state,
+        GameplaySave, GameplaySpec, GameplaySystem, LineView, LocaleTable, Locales, Mode,
+        Narrative, NarrativeEvent, Node, NodeId, OutcomeKey, SAVE_VERSION, SaveState, Slot, Stage,
+        Stats, Story, StoryMeta, SystemId, Text, TickReport, decode_state, encode_state,
     };
 }

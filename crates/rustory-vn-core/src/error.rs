@@ -81,4 +81,19 @@ pub enum CoreError {
 
     #[error("node `{node}` ran more than {limit} beats without waiting for the player")]
     EndlessFlow { node: String, limit: usize },
+
+    #[error("story has no language `{0}`")]
+    UnknownLanguage(String),
+
+    #[error("language `{language}` has no translation for key `{key}`")]
+    MissingTranslation { language: String, key: String },
+
+    #[error(
+        "story uses text keys but names no language to play; it has {languages:?}. \
+         Set `default_language`, or call `Story::localised` with one."
+    )]
+    AmbiguousLanguage { languages: Vec<String> },
+
+    #[error("the script refers to text key `{key}`, which no language defines")]
+    UndefinedKey { key: String },
 }

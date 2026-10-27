@@ -8,7 +8,7 @@
 //! operation only when it differs. This keeps typing responsive — applying an
 //! operation on every keystroke would push one undo step per character.
 
-use rustory_vn_core::{Beat, Exit, NodeId, Slot};
+use rustory_vn_core::{Beat, Exit, NodeId, Slot, Text};
 use rustory_vn_edit::prelude::*;
 
 use crate::app::{EditorApp, UiAction};
@@ -707,7 +707,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                         index: beat_count,
                         beat: Beat::Say {
                             speaker: None,
-                            text: String::new(),
+                            text: Text::literal(String::new()),
                         },
                     });
                 }
@@ -814,11 +814,8 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                             }
 
                             let mut label = choice.label.clone();
-                            if ui
-                                .add(egui::TextEdit::singleline(&mut label).desired_width(200.0))
-                                .lost_focus()
-                                && label != choice.label
-                            {
+                            let label_changed = text_field(ui, &mut label, 200.0, false);
+                            if label_changed && label != choice.label {
                                 tab.pending.push(EditOp::UpdateChoice {
                                     node: selected.clone(),
                                     index,
@@ -1184,6 +1181,70 @@ pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
         });
 }
 
+/// Edit a piece of story text: its value, and whether it is written out or a key.
+///
+/// One control for both forms, because they are one field. The checkbox is the whole
+/// difference — a literal shows its words, a key shows its key — and switching carries
+/// whatever is typed across, so a writer can promote a finished line to a key without
+/// retyping it.
+///
+/// Returns whether the value changed, which is what the caller feeds into `changed` so a
+/// keystroke becomes an `EditOp` and an undo step.
+fn text_field(ui: &mut egui::Ui, text: &mut Text, width: f32, multiline: bool) -> bool {
+    let mut changed = false;
+
+    let mut is_key = text.as_key().is_some();
+    if ui
+        .checkbox(&mut is_key, "key")
+        .on_hover_text("Resolve this through the story's locale tables")
+        .changed()
+    {
+        let current = current_string(text);
+        *text = if is_key {
+            Text::key(current)
+        } else {
+            Text::literal(current)
+        };
+        changed = true;
+    }
+
+    let mut value = current_string(text);
+    let hint = if is_key { "locale key" } else { "text" };
+    let edited = if multiline {
+        ui.add(
+            egui::TextEdit::multiline(&mut value)
+                .desired_width(width)
+                .desired_rows(2)
+                .hint_text(hint),
+        )
+    } else {
+        ui.add(
+            egui::TextEdit::singleline(&mut value)
+                .desired_width(width)
+                .hint_text(hint),
+        )
+    };
+
+    if edited.changed() {
+        *text = if is_key {
+            Text::key(value)
+        } else {
+            Text::literal(value)
+        };
+        changed = true;
+    }
+
+    changed
+}
+
+/// The string a `Text` currently holds, whichever form it is in.
+fn current_string(text: &Text) -> String {
+    match text {
+        Text::Literal(value) => value.clone(),
+        Text::Key { key } => key.clone(),
+    }
+}
+
 /// Edit a beat in place. Returns whether anything changed.
 fn beat_form(ui: &mut egui::Ui, beat: &mut Beat, index: usize) -> bool {
     let before = beat.clone();
@@ -1209,12 +1270,7 @@ fn beat_form(ui: &mut egui::Ui, beat: &mut Beat, index: usize) -> bool {
                     }
                 }
             });
-            ui.add(
-                egui::TextEdit::multiline(text)
-                    .desired_width(f32::INFINITY)
-                    .desired_rows(2)
-                    .hint_text("line of dialogue"),
-            );
+            text_field(ui, text, f32::INFINITY, true);
         }
         Beat::ShowActor { actor, pose, slot } => {
             ui.horizontal(|ui| {
@@ -1423,13 +1479,15 @@ fn exit_form(
             Exit::Choose { prompt, .. } => {
                 let mut has = prompt.is_some();
                 if ui.checkbox(&mut has, "prompt").changed() {
-                    *prompt = if has { Some(String::new()) } else { None };
+                    *prompt = if has {
+                        Some(Text::literal(String::new()))
+                    } else {
+                        None
+                    };
                     *changed = true;
                 }
                 if let Some(text) = prompt
-                    && ui
-                        .add(egui::TextEdit::singleline(text).desired_width(240.0))
-                        .changed()
+                    && text_field(ui, text, 240.0, false)
                 {
                     *changed = true;
                 }

@@ -267,7 +267,7 @@ pub fn line_summary(line: &LineView<'_>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustory_vn_core::{ActorId, Beat, Choice, Exit, Node, NodeId, Story, StoryMeta};
+    use rustory_vn_core::{ActorId, Beat, Choice, Exit, Node, NodeId, Story};
     use std::collections::BTreeMap;
 
     fn bank_with(names: &[&str]) -> TextureBank {
@@ -281,12 +281,7 @@ mod tests {
     fn talking_story(beats: Vec<Beat>, exit: Exit) -> Narrative {
         let mut nodes = BTreeMap::new();
         nodes.insert(NodeId::from("a"), Node { beats, exit });
-        Narrative::new(Story {
-            meta: StoryMeta::default(),
-            start: NodeId::from("a"),
-            nodes,
-        })
-        .expect("story is valid")
+        Narrative::new(Story::new("a", nodes)).expect("story is valid")
     }
 
     #[test]

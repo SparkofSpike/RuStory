@@ -9,26 +9,25 @@
 //! references block it; an error that just says "invalid" forces the caller to
 //! reverse-engineer the cause.
 
-use rustory_vn_core::{Beat, Choice, Exit, Node, NodeId, Slot, Story, StoryMeta};
+use rustory_vn_core::{Beat, Choice, Exit, Node, NodeId, Slot, Story};
 use rustory_vn_edit::prelude::*;
 use rustory_vn_edit::{Document, Editor};
 
 fn say(text: &str) -> Beat {
     Beat::Say {
         speaker: None,
-        text: text.to_owned(),
+        text: text.into(),
     }
 }
 
 fn story_with(nodes: Vec<(&str, Node)>, start: &str) -> Story {
-    Story {
-        meta: StoryMeta::default(),
-        start: NodeId::from(start),
-        nodes: nodes
+    Story::new(
+        start,
+        nodes
             .into_iter()
             .map(|(id, node)| (NodeId::from(id), node))
             .collect(),
-    }
+    )
 }
 
 fn editor_of(story: Story) -> Editor {
@@ -525,7 +524,7 @@ fn a_choice_can_be_added_relabelled_and_removed() {
     let Exit::Choose { choices, .. } = &editor.story().nodes[&node].exit else {
         panic!("still a choice");
     };
-    assert_eq!(choices[2].label, "perhaps");
+    assert_eq!(choices[2].label.as_literal(), Some("perhaps"));
     assert_eq!(choices[2].to.as_str(), "yes", "destination left alone");
 
     editor
@@ -1331,7 +1330,10 @@ fn picky() -> Editor {
 
 fn labels(editor: &Editor) -> Vec<String> {
     match &editor.story().nodes[&NodeId::from("pick")].exit {
-        Exit::Choose { choices, .. } => choices.iter().map(|c| c.label.clone()).collect(),
+        Exit::Choose { choices, .. } => choices
+            .iter()
+            .map(|c| c.label.display_without_locale().to_owned())
+            .collect(),
         other => panic!("expected a choice exit, got {other:?}"),
     }
 }

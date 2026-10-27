@@ -96,14 +96,12 @@ impl Editor {
             },
         );
 
-        Self::new(Document::untitled(Story {
-            meta: StoryMeta {
-                title,
-                author: None,
-            },
-            start,
-            nodes,
-        }))
+        let mut story = Story::new(start, nodes);
+        story.meta = StoryMeta {
+            title,
+            author: None,
+        };
+        Self::new(Document::untitled(story))
     }
 
     #[must_use]

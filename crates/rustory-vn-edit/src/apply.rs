@@ -388,7 +388,7 @@ pub(crate) fn referrers_to(story: &Story, target: &NodeId) -> Vec<Reference> {
                         found.push(Reference::Choice {
                             node: id.clone(),
                             index,
-                            label: choice.label.clone(),
+                            label: choice.label.display_without_locale().to_owned(),
                         });
                     }
                 }
@@ -485,7 +485,7 @@ fn rewrite_references(story: &mut Story, from: &NodeId, to: &NodeId) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustory_vn_core::{Choice, GameplaySpec, Node, StoryMeta, SystemId};
+    use rustory_vn_core::{Choice, GameplaySpec, Node, SystemId};
     use std::collections::BTreeMap;
 
     fn node(exit: Exit) -> Node {
@@ -527,11 +527,7 @@ mod tests {
                 },
             }),
         );
-        Story {
-            meta: StoryMeta::default(),
-            start: NodeId::from("a"),
-            nodes,
-        }
+        Story::new("a", nodes)
     }
 
     #[test]

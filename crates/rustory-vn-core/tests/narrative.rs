@@ -9,20 +9,19 @@ use rustory_vn_core::prelude::*;
 const INSTANT: u32 = 0;
 
 fn make_story(nodes: Vec<(&str, Node)>, start: &str) -> Story {
-    Story {
-        meta: StoryMeta::default(),
-        start: NodeId::from(start),
-        nodes: nodes
+    Story::new(
+        start,
+        nodes
             .into_iter()
             .map(|(id, node)| (NodeId::from(id), node))
             .collect(),
-    }
+    )
 }
 
 fn say(text: &str) -> Beat {
     Beat::Say {
         speaker: None,
-        text: text.to_owned(),
+        text: text.into(),
     }
 }
 
