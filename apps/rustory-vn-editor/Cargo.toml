@@ -9,7 +9,7 @@ publish = false
 description = "RuStory visual editor: edit stories as forms, preview with the real engine."
 
 [[bin]]
-name = "rustory-vn-editor"
+name = "rustory-editor"
 path = "src/main.rs"
 
 [dependencies]

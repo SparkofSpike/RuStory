@@ -124,7 +124,7 @@ intermediate, and this ADR should be superseded.
 - `rustory inspect --json` prints the story as data with the same schema on success and
   failure.
 - `rustory edit` refuses a batch atomically; `--dry-run` proves the file is untouched.
-- `rustory-vn-editor --check <story>` renders one preview frame without a window and fails
+- `rustory-editor --check <story>` renders one preview frame without a window and fails
   if the result looks blank — the regression test a GUI otherwise cannot have.
 - The screenshots in `shots/editor.png` were produced by running the real binary.
 
@@ -196,7 +196,7 @@ follow the project to another machine and mean nothing there.
 - **Tolerance over strictness.** A missing or corrupt file loads as an empty list, and an
   entry that no longer opens is dropped: every item in the menu has to be a file that
   opens, so the list is pruned on startup rather than offering a row of errors.
-- **The CLI reads, the GUI writes.** `rustory-vn-editor --recent [--json]` prints the list
+- **The CLI reads, the GUI writes.** `rustory-editor --recent [--json]` prints the list
   for an agent to inspect without a display. It deliberately does not prune, because a
   terminal command that silently rewrites the user's configuration is a surprise; the
   editor will drop the dead entry the next time it runs.

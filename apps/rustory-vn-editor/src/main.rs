@@ -19,7 +19,7 @@
 //!
 //! # Verifying it
 //!
-//! `rustory-vn-editor --check <story.ron>` renders one preview frame without a window and
+//! `rustory-editor --check <story.ron>` renders one preview frame without a window and
 //! reports whether the result looks like a scene. Without that, the only way to know
 //! the preview works is for a human to look at it.
 
@@ -41,10 +41,10 @@ rustory-vn-editor — visual editor for RuStory
 
 USAGE:
     rustory-vn-editor [story.ron]            Open the editor
-    rustory-vn-editor --check <story.ron>    Render one preview frame and report
+    rustory-editor --check <story.ron>    Render one preview frame and report
         --step <n>      interactions to advance before rendering (default: 0)
         --out <file>    write the frame as a PNG
-    rustory-vn-editor --recent               List recent stories, newest first
+    rustory-editor --recent               List recent stories, newest first
         --json          print as JSON instead of one path per line
 ";
 

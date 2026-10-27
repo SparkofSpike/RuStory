@@ -146,5 +146,5 @@ is a decision a system makes deliberately; leaking sprites through a full-screen
 - Rendered and inspected: `shots/gameplay-timer.png`, `shots/gameplay-quiz.png`, produced by
   `rustory shot --at honest:exit` and `--at confession:exit`.
 - Both front-ends were given the same story and the same interaction count
-  (`rustory shot --advance 3` and `rustory-vn-editor --check --step 3`) and produced PNGs with
+  (`rustory shot --advance 3` and `rustory-editor --check --step 3`) and produced PNGs with
   the same SHA-256. That is what "shared painter" means in practice, not just in intent.

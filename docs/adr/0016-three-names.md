@@ -31,7 +31,7 @@ that they were never one string.
 
 The workspace has one crate per layer, all under the same prefix: `rustory-vn-core`,
 `rustory-vn-script`, `rustory-vn-render`, `rustory-vn-audio`, `rustory-vn-edit`,
-`rustory-vn-gameplay-{timer,quiz,wasm}`, plus `apps/rustory-vn` and `apps/rustory-vn-editor`.
+`rustory-vn-gameplay-{timer,quiz,wasm}`, plus `apps/rustory-vn` and `apps/rustory-vn-editor` (package) with `rustory-editor` as its binary.
 
 Gameplay crates written by third parties are **not** required to use the prefix. The contract is
 the trait, not the name; a creator's crate is theirs.
