@@ -99,6 +99,36 @@ jobs:
           cargo run -q -p rustory -- edit stories/demo.ron \
             --op '{"op":"SetTitle","title":"Checked"}' --dry-run
 
+      # The catalogue promises a caller can copy an example and change its values. One example
+      # being checked proves nothing about the other sixteen, so all of them are parsed back
+      # through the CLI. A refusal about the *story* (deleting a node the demo does not have)
+      # still proves the example parsed; `invalid_operation` is the failure that matters.
+      - name: Every catalogue example parses as an operation
+        run: |
+          cargo build -q -p rustory
+          python3 - <<'PY'
+          import json, subprocess, sys
+
+          exe = "target/debug/rustory"
+          catalogue = json.loads(subprocess.check_output([exe, "ops", "--json"]))
+          broken = []
+          for op in catalogue["operations"]:
+              result = subprocess.run(
+                  [exe, "edit", "stories/demo.ron", "--op", op["example"], "--dry-run", "--json"],
+                  capture_output=True, text=True)
+              body = json.loads(result.stdout) if result.stdout.strip() else {}
+              if not body:
+                  broken.append((op["name"], f"no JSON on stdout (exit {result.returncode})"))
+              elif body.get("code") == "invalid_operation":
+                  broken.append((op["name"], body.get("message", "")))
+
+          for name, message in broken:
+              print(f"{name}: {message}")
+          if broken:
+              sys.exit(1)
+          print(f"{len(catalogue['operations'])} examples parsed")
+          PY
+
       - name: Generate the placeholder art and sound
         run: cargo run -q -p rustory -- gen-assets assets
 
