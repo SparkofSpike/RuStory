@@ -74,7 +74,7 @@ pub use ids::{ActorId, NodeId, OutcomeKey, SystemId};
 pub use narrative::{LineView, Mode, Narrative};
 pub use save::{GameplaySave, SAVE_VERSION, SaveState};
 pub use stage::{ActorOnStage, Stage};
-pub use story::{Beat, Choice, Exit, GameplaySpec, Node, Slot, Story, StoryMeta};
+pub use story::{Beat, Choice, Exit, GameplaySpec, MissingText, Node, Slot, Story, StoryMeta};
 pub use text::{LocaleTable, Locales, Text, is_valid_language_tag};
 pub use view::{Align, Element, GameplayView, Tone, VIEW_HEIGHT, VIEW_WIDTH, ViewRect};
 
@@ -83,9 +83,9 @@ pub mod prelude {
     pub use crate::{
         ActorId, Align, Beat, Choice, ChoiceMade, CoreError, Element, Exit, GameplayContext,
         GameplayInput, GameplayRegistry, GameplaySave, GameplaySpec, GameplaySystem, GameplayView,
-        LineView, LocaleTable, Locales, Mode, Narrative, NarrativeEvent, NarrativeSnapshot, Node,
-        NodeId, OutcomeKey, SAVE_VERSION, SaveState, Slot, Stage, Stats, Story, StoryMeta,
-        SystemId, Text, TickReport, Tone, VIEW_HEIGHT, VIEW_WIDTH, ViewRect, decode_state,
-        encode_state,
+        LineView, LocaleTable, Locales, MissingText, Mode, Narrative, NarrativeEvent,
+        NarrativeSnapshot, Node, NodeId, OutcomeKey, SAVE_VERSION, SaveState, Slot, Stage, Stats,
+        Story, StoryMeta, SystemId, Text, TickReport, Tone, VIEW_HEIGHT, VIEW_WIDTH, ViewRect,
+        decode_state, encode_state,
     };
 }

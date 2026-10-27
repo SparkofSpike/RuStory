@@ -22,6 +22,21 @@ use serde::{Deserialize, Serialize};
 use crate::ids::{ActorId, NodeId, OutcomeKey, SystemId};
 use crate::text::{Locales, Text};
 
+/// What to do about a key the requested language does not translate.
+///
+/// Set by the caller, not by the story: the same file is a build artifact in one situation and a
+/// work in progress in another, and only the person running it knows which.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MissingText {
+    /// Fail with the key named. The default, and what a shipped build wants: a hole must never
+    /// look like prose.
+    #[default]
+    Refuse,
+    /// Substitute the default language's text, then the key name itself. For a translator or
+    /// writer part-way through, who needs to reach line 2 900 to check the pacing there.
+    FallBack,
+}
+
 /// Where an actor stands on stage.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Slot {
@@ -294,20 +309,62 @@ impl Story {
     ///
     /// Fails when `language` is not in `locales` or when one key has no translation there, and
     /// names the key: a story with a hole in it must not be playable.
+    ///
+    /// A translator working through a three-thousand-line story cannot play-test at line 2 900
+    /// if this refuses outright, so [`Story::localised_with`] takes a policy. The default here
+    /// stays the strict one, because strict is the right answer for a build.
     pub fn localised(&self, language: &str) -> Result<Self, crate::error::CoreError> {
+        self.localised_with(language, MissingText::Refuse)
+    }
+
+    /// The same story, with a policy for keys `language` does not translate.
+    ///
+    /// [`MissingText::FallBack`] exists for the one case it is right for: a translator or writer
+    /// part-way through. It substitutes the default language's text, and then the key name
+    /// itself, so a missing line is visible on screen rather than blank — the whole reason the
+    /// strict policy exists is that a hole must never look like prose, and a key name does not.
+    ///
+    /// It does not weaken the strict path. `rustory check` still reports every missing key, and a
+    /// build that ships with holes is a decision someone has to make explicitly.
+    pub fn localised_with(
+        &self,
+        language: &str,
+        missing: MissingText,
+    ) -> Result<Self, crate::error::CoreError> {
         let Some(table) = self.locales.get(language) else {
             return Err(crate::error::CoreError::UnknownLanguage(
                 language.to_owned(),
             ));
         };
 
+        // The fallback chain is only consulted when the requested language has no entry, and
+        // only ever reads a *different* table: falling back to the same one would be a no-op
+        // dressed up as a feature.
+        let fallback = self
+            .default_language
+            .as_ref()
+            .filter(|default| default.as_str() != language)
+            .and_then(|default| self.locales.get(default));
+
         let mut localised = self.clone();
         localised.default_language = Some(language.to_owned());
         // Kept so a localised story can still answer "what languages does this exist in",
         // which a tool saving one back out needs.
         let resolve = |text: &Text| -> Result<Text, crate::error::CoreError> {
-            text.resolve(table)
-                .map_err(|key| crate::text::missing_translation(language, &key))
+            match text.resolve(table) {
+                Ok(resolved) => Ok(resolved),
+                Err(key) => {
+                    if missing == MissingText::Refuse {
+                        return Err(crate::text::missing_translation(language, &key));
+                    }
+                    if let Some(resolved) = fallback.and_then(|t| t.get(&key)) {
+                        return Ok(Text::Literal(resolved.clone()));
+                    }
+                    // The key itself, so a playtester sees which line is missing instead of an
+                    // unaccounted-for blank.
+                    Ok(Text::Literal(key))
+                }
+            }
         };
 
         for node in localised.nodes.values_mut() {

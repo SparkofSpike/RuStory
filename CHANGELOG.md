@@ -14,6 +14,9 @@ SemVer once there is a published version to be compatible with.
 - **Localisation.** Story text can be a literal or a key; a story carries per-language tables and
   a default language. A missing translation is a load error naming the key, not a blank line.
   `rustory transcript --language <tag>` and `rustory shot --language <tag>` play in one language.
+- **`--allow-missing`** for `transcript` and `shot`: play a partly translated story using the
+  default language's line where one is missing, and the key name when there is no default.
+  `check` stays strict, so the holes are still reported.
 - **A gameplay system can read where the story is.** `GameplayContext` and `begin` both receive an
   owned, read-only `NarrativeSnapshot`: node, beat position, every node visited and every choice
   made. History is stored in the save, so a resumed system sees what the original saw.

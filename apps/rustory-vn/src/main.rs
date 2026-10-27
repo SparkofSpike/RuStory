@@ -65,6 +65,9 @@ OPTIONS for shot / play / save / resume:
                        (no --font means the platform's default sans-serif)
     --language <tag>   Play a translated story in this language (e.g. en, zh-Hans);
                        without it the story's own default_language decides
+    --allow-missing    Play despite keys this language does not translate, using the default
+                       language's line (the key itself when there is none). Development only
+                       -- `check` stays strict either way
 ";
 
 fn run(args: &[String]) -> Result<(), String> {
@@ -168,6 +171,7 @@ fn load(path: &Path) -> Result<rustory_vn_core::Story, String> {
 fn load_for_playback(
     path: &Path,
     language: Option<&str>,
+    missing: rustory_vn_core::MissingText,
 ) -> Result<rustory_vn_core::Story, String> {
     let story = load(path)?;
     let Some(language) = language else {
@@ -175,14 +179,22 @@ fn load_for_playback(
         // an omission here — it is "the story decides".
         return Ok(story);
     };
-    story.localised(language).map_err(|err| match err {
-        rustory_vn_core::CoreError::UnknownLanguage(tag) => format!(
-            "no language `{tag}` in {}; it has {:?}",
-            path.display(),
-            story.languages()
-        ),
-        other => other.to_string(),
-    })
+    story
+        .localised_with(language, missing)
+        .map_err(|err| match err {
+            rustory_vn_core::CoreError::UnknownLanguage(tag) => format!(
+                "no language `{tag}` in {}; it has {:?}",
+                path.display(),
+                story.languages()
+            ),
+            rustory_vn_core::CoreError::MissingTranslation { key, .. } => format!(
+                "`{key}` has no {} text in {}. Pass --allow-missing to play with the default \
+                 language's line instead (development only; the key is shown when there is none)",
+                language,
+                path.display()
+            ),
+            other => other.to_string(),
+        })
 }
 
 fn check(path: &Path, as_json: bool) -> Result<(), String> {
@@ -364,6 +376,7 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
 fn transcript(args: &[String]) -> Result<(), String> {
     let mut story_path: Option<PathBuf> = None;
     let mut language: Option<String> = None;
+    let mut missing = rustory_vn_core::MissingText::Refuse;
 
     let mut index = 0;
     while index < args.len() {
@@ -376,6 +389,7 @@ fn transcript(args: &[String]) -> Result<(), String> {
                         .clone(),
                 );
             }
+            "--allow-missing" => missing = rustory_vn_core::MissingText::FallBack,
             other if other.starts_with("--") => {
                 return Err(format!("transcript: unknown option `{other}`"));
             }
@@ -390,7 +404,7 @@ fn transcript(args: &[String]) -> Result<(), String> {
     }
 
     let story_path = story_path.ok_or("transcript needs a story path")?;
-    let story = load_for_playback(&story_path, language.as_deref())?;
+    let story = load_for_playback(&story_path, language.as_deref(), missing)?;
     let lines = driver::transcript(story, 500)?;
     for line in &lines {
         println!("{line}");
@@ -512,6 +526,8 @@ struct ShotOptions {
     at: Option<String>,
     /// Which language to play a translated story in. Absent means the story's own default.
     language: Option<String>,
+    /// What to do about a key that language does not translate.
+    missing: rustory_vn_core::MissingText,
     font: Option<String>,
 }
 
@@ -524,6 +540,7 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
         advance: 0,
         at: None,
         language: None,
+        missing: rustory_vn_core::MissingText::Refuse,
         font: None,
     };
 
@@ -561,6 +578,7 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
                         .clone(),
                 );
             }
+            "--allow-missing" => options.missing = rustory_vn_core::MissingText::FallBack,
             "--font" => {
                 index += 1;
                 options.font = Some(args.get(index).ok_or("--font needs a family name")?.clone());
@@ -582,7 +600,7 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
 
 fn shot(args: &[String]) -> Result<(), String> {
     let options = parse_shot_args(args)?;
-    let story = load_for_playback(&options.story, options.language.as_deref())?;
+    let story = load_for_playback(&options.story, options.language.as_deref(), options.missing)?;
     let mut narrative = Narrative::new(story).map_err(|err| err.to_string())?;
     let mut registry = driver::default_registry();
 

@@ -148,6 +148,19 @@ jobs:
         run: |
           ! cargo run -q -p rustory-vn -- transcript stories/localised.ron --language fr
 
+      # A missing line and a missing language are different faults, and falling back must not
+      # blur them. The fixture removes one key from one language of the shipped story.
+      - name: A missing line is refused, and allowed only when asked
+        run: |
+          python3 scripts/strip-line.py stories/localised.ron /tmp/partial.ron
+          ! cargo run -q -p rustory-vn -- transcript /tmp/partial.ron --language ja
+          cargo run -q -p rustory-vn -- transcript /tmp/partial.ron --language ja --allow-missing \
+            | tee /tmp/partial.txt
+          # The fallback is English, so the line is present and not Japanese.
+          grep -q "walk home the long way" /tmp/partial.txt
+          # `check` stays strict: the hole is still counted as a hole.
+          cargo run -q -p rustory-vn -- check /tmp/partial.ron | grep -q "language ja: missing"
+
       - name: The check report parses as JSON
         run: |
           cargo run -q -p rustory-vn -- check stories/demo.ron --json \

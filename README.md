@@ -57,7 +57,7 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 340 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
+- 346 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
 
 Not yet: player rollback history, pointer input for gameplay, a flag to load a wasm module.
 Those have ADRs describing the plan, not code pretending to be one.
@@ -251,7 +251,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 340 tests; render tests skip without a GPU
+cargo test --workspace      # 346 tests; render tests skip without a GPU
 cargo run -p rustory-vn -- probe
 ```
 
@@ -341,6 +341,16 @@ see a key. A missing translation is a load error naming the key and the language
 box three scenes in — and because a save records a node and a beat index rather than any text, a
 save made in English resumes in Japanese at the same line. See
 [ADR 0011](docs/adr/0011-localisation.md).
+
+Strict is the right default and the wrong rule for the person writing the file. `--allow-missing`
+plays with the default language's line where a translation is missing, and shows the key itself
+when there is no default — never a blank, because a hole must not look like prose:
+
+```console
+$ cargo run -p rustory-vn -- transcript stories/localised.ron --language ja --allow-missing
+```
+
+`check` stays strict, so the holes are still counted; the flag only changes what playback does.
 
 ## Writing a story
 

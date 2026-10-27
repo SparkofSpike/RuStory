@@ -1,6 +1,8 @@
 # ADR 0011 — Text a player reads has a name, and the engine resolves it
 
-- **Status**: Accepted, implemented
+- **Status**: Accepted, implemented. The missing-translation policy was widened later:
+  `localised()` stays strict and `localised_with(language, MissingText::FallBack)` is the
+  development path behind `--allow-missing`.
 - **Date**: 2026-10-27
 
 ---
@@ -82,6 +84,30 @@ Two things are load errors rather than runtime surprises:
 A player staring at an empty dialogue box cannot tell a missing translation from a broken
 renderer. Neither can whoever they report it to.
 
+### Strict by default, and a policy for the one case that needs it
+
+Strict is the right answer for a build and the wrong answer for the person writing the
+build. A translator at line 2 900 of 3 000 cannot play-test the pacing there if the engine
+refuses to open the file, and "finish every line first, then look at it" is not how anyone
+writes.
+
+So `Story::localised_with(language, MissingText)` takes the policy, and the story does not:
+the same file is a build artifact in one situation and a work in progress in another, and only
+the caller knows which.
+
+- `MissingText::Refuse` — the default. `localised()` is exactly this, so the strict path did
+  not change and a build cannot accidentally inherit the lenient one.
+- `MissingText::FallBack` — the default language's line, and then the key name itself if there
+  is no default. Reached from the CLI as `--allow-missing`.
+
+The fallback still never produces a blank line, which is the whole reason the strict policy
+exists: a hole must not look like prose. A key name does not look like prose, so it is the
+right last resort — and it tells a playtester which line to go and write.
+
+A language that does not exist at all stays an error under both policies. Falling back is
+about a missing *line*; silently playing English when the player asked for French is a
+different and worse mistake.
+
 ## The bug this exposed: saves were keyed on text
 
 `Story::checksum` hashed the RON form of the whole story. That was wrong before this change and
@@ -108,8 +134,10 @@ is what the old comment claimed it was doing.
   honest position is that this design covers "the same lines in another language" and not
   "grammatically generated language", and the first project that needs the latter should get an
   ADR of its own rather than a special case bolted on.
-- **No fallback chain.** A missing translation is an error, not a silent fall back to English.
-  A silent fallback is how a release ships with half a language and nobody notices.
+- **No automatic fallback chain.** A missing translation is an error unless the caller asks for
+  `MissingText::FallBack`, and then it is one step to the default language, not a chain through
+  three. A silent fallback by default is how a release ships with half a language and nobody
+  notices; a fallback someone typed on purpose is a work in progress.
 - **No tooling for the tables.** `rustory check` reports which language is short and by which
   keys; extracting strings to a translation service is a project's problem.
 
@@ -120,6 +148,10 @@ is what the old comment claimed it was doing.
   without being asked; localising replaces keys and keeps literals; a missing translation names
   the key and the language; an undefined key fails at load; labels and prompts translate; a save
   restored in another language lands on the same line, in the new language.
+- `crates/rustory-vn-core/tests/missing_text.rs` — six tests on the policy: the default refuses and
+  names the key; falling back substitutes the default language; a fallback with no default shows
+  the key rather than a blank; a language that does not exist fails under either policy; the
+  strict path is byte-identical for a complete story; and no line is ever empty.
 - `crates/rustory-vn-script/tests/script.rs` — six tests on the format, including that the
   shipped demo still parses unchanged.
 - `stories/localised.ron` — one story in English, Japanese and Simplified Chinese. Verified by
