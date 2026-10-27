@@ -48,7 +48,7 @@ it. Cargo's dependency declarations enforce this, not discipline.
 | `rustory-vn-core` | Story model, state machine, gameplay contract | Render, open windows, touch the filesystem |
 | `rustory-vn-script` | RON parsing, structural validation | Play, advance state |
 | `rustory-vn-edit` | Document, typed operations, undo, validation | Know about a UI, or about pixels |
-| `rustory-vn-render` | Draw list → pixels | Know what a story, actor or choice is |
+| `rustory-vn-render` | Draw list → pixels; gameplay view → draw list | Know what a story, actor or choice is |
 | `rustory-vn-audio` | Fade and track-change state machine | Open a device, decode a file, or know what a scene is |
 | `rustory-vn-gameplay-timer` | One concrete gameplay system | Read the stage or the story graph |
 | `rustory-vn-gameplay-quiz` | A second one, with state no counter could hold | Ditto |
@@ -131,7 +131,9 @@ before changing one.
 
 5. **The renderer knows no game concepts.**
    `Story`, `Actor` or `Choice` appearing in `rustory-vn-render` is a leak. It knows
-   `Frame`, `Quad` and `TextItem`.
+   `Frame`, `Quad` and `TextItem` — and `GameplayView`, which is a list of rectangles and
+   text runs rather than a game concept, and is drawn by the same code for the player and
+   for the editor's preview.
 
 6. **Typewriter text advances by grapheme cluster, never by `char`.**
    `char` splits emoji and combining marks into pieces.
@@ -154,6 +156,7 @@ crates/rustory-vn-core/src/
   narrative.rs    State machine: cursor, beat index, reveal progress, Mode
   event.rs        NarrativeEvent, TickReport
   gameplay.rs     GameplaySystem trait, GameplayContext, Stats, Registry
+  view.rs         GameplayView / Element / Tone: what a system draws
   error.rs        CoreError
 
 crates/rustory-vn-script/src/lib.rs
@@ -161,6 +164,7 @@ crates/rustory-vn-script/src/lib.rs
 
 crates/rustory-vn-render/src/
   frame.rs        Frame / Quad / TextItem / Rect / Rgba / Uv
+  view.rs         Palette, TextureResolver, paint_gameplay_view
   image.rs        Rgba8Image (PNG read and write, solid fills, gradients)
   renderer.rs     wgpu pipeline, texture upload, offscreen readback
 
@@ -224,15 +228,14 @@ GPU is an environment fact, not a regression.
 - **No audio mixing.** One music track plus one-shot effects, both driven by beats. Layered
   ambience needs a mixer, and a mixer written before a story asks for one is speculative. See
   ADR 0009.
-- **No structured channel for gameplay to draw itself.** A system expresses itself
-  through `prompt() -> Option<String>`: one text block, drawn by the engine. A
-  countdown and a quiz fit. A board, a highlighted cursor or a drag target does
-  not. See ADR 0012 for the one thing that gap no longer includes — reading the
-  story — and ADR 0004 for the rest.
+- **No pointer input.** A system receives `Confirm` and `Select { index }` and nothing else. A
+  countdown and a quiz fit; a drag, a board cursor or a click on a thing rather than a numbered
+  option does not. The view channel (ADR 0013) can already draw what such a system would need;
+  the input side is the remaining half.
 - **`--advance` counts interactions, not positions.** One interaction can span two
   states (finishing a line, then advancing a beat), and inside a gameplay system it
   plays the whole thing to completion, always choosing the first option. `shot --at
-  <node>[:<beat>]` exists for callers that know where they want to be; `--advance`
+  <node>[:<beat>|:exit]` exists for callers that know where they want to be; `--advance`
   remains for "click a few times and see".
 - **A bad gameplay config surfaces only when playback reaches that node**, not at
   load time.

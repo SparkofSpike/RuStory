@@ -189,11 +189,21 @@ pub trait GameplaySystem {
     /// Must reset so the next [`GameplaySystem::begin`] starts clean.
     fn cancel(&mut self);
 
-    /// A short label for the system's current on-screen prompt, if it has one.
+    /// What this system draws while it has control, if anything.
     ///
-    /// Presentation-neutral: the renderer decides how to draw it. Default
-    /// implementation reports nothing, so simple systems do not implement it.
-    fn prompt(&self) -> Option<String> {
+    /// A full screen of its own, in the 1280×720 design box shared with the renderer's reference
+    /// frame — not a caption inside the dialogue box. Elements are drawn in list order over
+    /// whatever the story had on screen, so a system that wants a clean backdrop starts with a
+    /// full-size [`Element::panel`](crate::view::Element::panel).
+    ///
+    /// Default implementation reports nothing: a system that needs no custom screen, or a
+    /// headless run, draws nothing and is still legal. While such a system has control the
+    /// player sees the story's last frame, which is the honest presentation — the engine will not
+    /// invent a screen on the system's behalf.
+    ///
+    /// This is asked every frame, so it must be cheap: build a value, do not reshape text or
+    /// touch the filesystem.
+    fn view(&self) -> Option<crate::view::GameplayView> {
         None
     }
 
@@ -297,10 +307,10 @@ impl GameplayRegistry {
         self.systems.get(id).map(AsRef::as_ref)
     }
 
-    /// Read-only prompt lookup, for presentation.
+    /// Read-only view lookup, for presentation.
     #[must_use]
-    pub fn prompt_of(&self, id: &SystemId) -> Option<String> {
-        self.systems.get(id).and_then(|system| system.prompt())
+    pub fn view_of(&self, id: &SystemId) -> Option<crate::view::GameplayView> {
+        self.systems.get(id).and_then(|system| system.view())
     }
 }
 

@@ -7,8 +7,10 @@
 
 use std::collections::HashMap;
 
-use rustory_vn_core::{LineView, Mode, Narrative, Slot};
-use rustory_vn_render::{Frame, Quad, Rect, Rgba, TextItem, TextureId};
+use rustory_vn_core::{GameplayView, LineView, Mode, Narrative, Slot};
+use rustory_vn_render::{
+    Frame, Palette, Quad, Rect, Rgba, TextItem, TextureId, paint_gameplay_view,
+};
 
 /// Logical resolution. All layout constants below are in these units.
 pub const WIDTH: u32 = 1280;
@@ -71,8 +73,8 @@ impl TextureBank {
 pub struct Scene<'a> {
     pub narrative: &'a Narrative,
     pub textures: &'a TextureBank,
-    /// Prompt from the gameplay system that currently has control, if any.
-    pub gameplay_prompt: Option<&'a str>,
+    /// What the gameplay system that currently has control draws, if anything.
+    pub gameplay_view: Option<&'a GameplayView>,
     /// Keyboard hint line, shown at the bottom.
     pub hint: Option<&'a str>,
 }
@@ -86,7 +88,7 @@ impl Scene<'_> {
         self.push_actors(&mut frame);
         self.push_dialogue(&mut frame);
         self.push_choice(&mut frame);
-        self.push_gameplay_prompt(&mut frame);
+        self.push_gameplay_view(&mut frame);
         self.push_hint(&mut frame);
 
         frame
@@ -211,29 +213,17 @@ impl Scene<'_> {
         }
     }
 
-    fn push_gameplay_prompt(&self, frame: &mut Frame) {
-        let Some(prompt) = self.gameplay_prompt else {
+    fn push_gameplay_view(&self, frame: &mut Frame) {
+        let Some(view) = self.gameplay_view else {
             return;
         };
-        // While a gameplay system has control there is no dialogue on screen, so
-        // the prompt takes the space the dialogue box would occupy. Putting it at
-        // the top instead would cover the sprites' heads, which is where the
-        // player is looking.
-        let plate = Rect::new(
-            DIALOGUE_BOX.x,
-            DIALOGUE_BOX.y,
-            DIALOGUE_BOX.width,
-            DIALOGUE_BOX.height,
-        );
-        frame.push_quad(Quad::solid(plate, COL_CHOICE));
-        frame.push_quad(Quad::solid(
-            Rect::new(plate.x, plate.y, plate.width, 2.0),
-            COL_CHOICE_EDGE,
-        ));
-        frame.push_text(
-            TextItem::new(prompt, plate.x + 32.0, plate.y + 28.0, 28.0)
-                .with_color(COL_TEXT)
-                .with_wrap(plate.width - 64.0),
+        // Shared with the editor's preview, so a change to how a view looks cannot land in one
+        // front-end and not the other.
+        paint_gameplay_view(
+            view,
+            &Palette::default(),
+            &|name: &str| self.textures.resolve(name),
+            frame,
         );
     }
 
@@ -267,7 +257,10 @@ pub fn line_summary(line: &LineView<'_>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustory_vn_core::{ActorId, Beat, Choice, Exit, Node, NodeId, Story};
+    use rustory_vn_core::{
+        ActorId, Beat, Choice, Element, Exit, Node, NodeId, Story, Tone, ViewRect,
+    };
+    use rustory_vn_render::TextAlign;
     use std::collections::BTreeMap;
 
     fn bank_with(names: &[&str]) -> TextureBank {
@@ -298,7 +291,7 @@ mod tests {
         let frame = Scene {
             narrative: &narrative,
             textures: &bank,
-            gameplay_prompt: None,
+            gameplay_view: None,
             hint: None,
         }
         .build();
@@ -329,7 +322,7 @@ mod tests {
         let frame = Scene {
             narrative: &narrative,
             textures: &bank,
-            gameplay_prompt: None,
+            gameplay_view: None,
             hint: None,
         }
         .build();
@@ -359,7 +352,7 @@ mod tests {
         let frame = Scene {
             narrative: &narrative,
             textures: &bank,
-            gameplay_prompt: None,
+            gameplay_view: None,
             hint: None,
         }
         .build();
@@ -396,7 +389,7 @@ mod tests {
         let frame = Scene {
             narrative: &narrative,
             textures: &bank,
-            gameplay_prompt: None,
+            gameplay_view: None,
             hint: None,
         }
         .build();
@@ -445,7 +438,7 @@ mod tests {
         let frame = Scene {
             narrative: &narrative,
             textures: &bank,
-            gameplay_prompt: None,
+            gameplay_view: None,
             hint: None,
         }
         .build();
@@ -470,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn a_gameplay_prompt_gets_its_own_band_above_the_scene() {
+    fn a_gameplay_view_is_drawn_over_the_story() {
         let mut narrative = talking_story(
             vec![Beat::Say {
                 speaker: None,
@@ -488,18 +481,101 @@ mod tests {
         narrative.advance().expect("advance");
         let bank = TextureBank::new();
 
+        let view = GameplayView::new()
+            .push(Element::panel(ViewRect::full(), Tone::Panel))
+            .push(Element::centered_text(
+                "Pick one (3.0s)",
+                ViewRect::new(60.0, 120.0, 1160.0, 48.0),
+                28.0,
+                Tone::Accent,
+            ))
+            .push(Element::bar(
+                ViewRect::new(60.0, 620.0, 1160.0, 12.0),
+                0.5,
+                Tone::Accent,
+            ));
+
         let frame = Scene {
             narrative: &narrative,
             textures: &bank,
-            gameplay_prompt: Some("Pick one (3.0s)"),
+            gameplay_view: Some(&view),
             hint: None,
         }
         .build();
 
         assert!(
-            frame.texts.iter().any(|t| t.text == "Pick one (3.0s)"),
-            "the gameplay prompt must reach the frame"
+            frame
+                .texts
+                .iter()
+                .any(|t| t.text == "Pick one (3.0s)" && t.align == TextAlign::Center),
+            "the system's text must reach the frame, centred"
         );
+        assert!(
+            frame
+                .quads
+                .iter()
+                .any(|q| q.rect.width == WIDTH as f32 && q.rect.height == HEIGHT as f32),
+            "the full-screen panel must cover the story behind it"
+        );
+        let half_filled = frame
+            .quads
+            .iter()
+            .find(|q| (q.rect.width - 580.0).abs() < 0.01)
+            .expect("a bar at 0.5 fills half its 1160-wide track");
+        assert!((half_filled.rect.height - 12.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_zero_sized_element_draws_nothing() {
+        let narrative = talking_story(vec![], Exit::End { ending: None });
+        let bank = TextureBank::new();
+        let view = GameplayView::new()
+            .push(Element::panel(
+                ViewRect::new(0.0, 0.0, 0.0, 40.0),
+                Tone::Panel,
+            ))
+            .push(Element::bar(
+                ViewRect::new(0.0, 0.0, 0.0, 0.0),
+                0.5,
+                Tone::Accent,
+            ));
+
+        let frame = Scene {
+            narrative: &narrative,
+            textures: &bank,
+            gameplay_view: Some(&view),
+            hint: None,
+        }
+        .build();
+
+        assert_eq!(frame.primitive_count(), 0, "nothing visible, nothing drawn");
+    }
+
+    #[test]
+    fn a_gameplay_image_resolves_through_the_texture_bank() {
+        let narrative = talking_story(vec![], Exit::End { ending: None });
+        let bank = bank_with(&["board"]);
+        let view = GameplayView::new()
+            .push(Element::image(
+                "board",
+                ViewRect::new(100.0, 100.0, 400.0, 300.0),
+            ))
+            .push(Element::image(
+                "missing",
+                ViewRect::new(0.0, 0.0, 10.0, 10.0),
+            ));
+
+        let frame = Scene {
+            narrative: &narrative,
+            textures: &bank,
+            gameplay_view: Some(&view),
+            hint: None,
+        }
+        .build();
+
+        let textured: Vec<_> = frame.quads.iter().filter(|q| q.texture.is_some()).collect();
+        assert_eq!(textured.len(), 1, "missing art is skipped, not boxed");
+        assert_eq!(textured[0].rect.width, 400.0);
     }
 
     #[test]

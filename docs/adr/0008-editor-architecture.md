@@ -133,16 +133,15 @@ intermediate, and this ADR should be superseded.
 - **Playing a gameplay handover in the preview commits to the first option.** Stepping into a
   handover runs the system with a synthetic input, because a preview must be reproducible.
   The consequence is worth stating precisely, because an earlier revision of this ADR
-  overstated it: a gameplay's *screen* does render — `GameplaySystem::prompt` produces the
-  text, and `rustory shot --at <node>:<beat>` shows the countdown, the question and the
-  options (`shots/gameplay.png`). What the preview does not do is let you *answer* a handover
-  differently; the choice is made for you.
+  overstated it: a gameplay's *screen* does render — `GameplaySystem::view` produces it, and
+  `rustory shot --at <node>:exit` shows the countdown, the question and the options
+  (`shots/gameplay-timer.png`, `shots/gameplay-quiz.png`). What the preview does not do is let
+  you *answer* a handover differently; the choice is made for you.
 
-  The real limitation is narrower and belongs in the engine's own record: a system can only
-  express itself as one string, laid out as a paragraph. Options cannot be highlighted, a
-  countdown cannot be a bar, a board cannot be drawn. Both shipped systems fit because both are
-  "read text, press a number"; the first one that does not will need a structured channel from
-  a system to the renderer, not a bigger string.
+  The limitation this ADR recorded — a system could only express itself as one string laid out
+  as a paragraph — was closed by [ADR 0013](0013-gameplay-draws-itself.md): a system now
+  returns text, panels, images and bars in the engine's design box, and both front-ends paint
+  them with the same code.
 - **The preview does not re-render on window resize.** The logical resolution is fixed,
   so this only shows up as letterboxing differences.
 - **No colour grading or theme editor.** Layout constants are compiled in; a project that

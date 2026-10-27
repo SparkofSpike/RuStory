@@ -57,10 +57,10 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 298 tests, including offscreen GPU renders, colour round-trips, and 73 in `rustory-vn-edit`
+- 317 tests, including offscreen GPU renders, colour round-trips, and 73 in `rustory-vn-edit`
 
-Not yet: rollback history, WASM plugins, a structured channel for gameplay to draw
-itself. Those have ADRs describing the plan, not code pretending to be one.
+Not yet: rollback history, WASM plugins, pointer input for gameplay. Those have ADRs
+describing the plan, not code pretending to be one.
 
 ## Editor
 
@@ -170,6 +170,7 @@ $ cargo run -p rustory-vn -- check stories/demo.ron  # parse + validate (--json 
 $ cargo run -p rustory-vn -- play stories/demo.ron   # play it
 $ cargo run -p rustory-vn -- shot stories/demo.ron --out frame.png --advance 4
 $ cargo run -p rustory-vn -- shot stories/demo.ron --at honest:2 --out frame.png
+$ cargo run -p rustory-vn -- shot stories/demo.ron --at honest:exit --out timer.png  # the gameplay screen
 
 $ cargo run -p rustory-vn -- save stories/demo.ron --advance 6 --out save.ron
 $ cargo run -p rustory-vn -- resume stories/demo.ron save.ron --finish
@@ -179,6 +180,10 @@ $ cargo run -p rustory-vn -- resume stories/demo.ron save.ron --finish
 is what a caller who knows what it wants does. They are not the same thing: one click can
 finish a revealing line without moving on, and inside a gameplay system a click plays the
 whole interaction.
+
+`--at node:exit` is the third form and the one a gameplay author wants: past the node's last
+beat, so the frame is the choice or the system's own screen rather than the line before it.
+Without it there is no way to screenshot a gameplay screen without a window.
 
 The demo runs without a window too:
 
@@ -194,7 +199,7 @@ Kai: I was waiting for you.
 
 | Dialogue | Choice | Timed choice | Quiz |
 |---|---|---|---|
-| ![dialogue](shots/dialogue.png) | ![choice](shots/choice.png) | ![gameplay](shots/gameplay.png) | ![quiz](shots/quiz.png) |
+| ![dialogue](shots/dialogue.png) | ![choice](shots/choice.png) | ![a timed choice](shots/gameplay-timer.png) | ![a quiz](shots/gameplay-quiz.png) |
 
 The art is generated procedurally by `rustory gen-assets` — no binaries in the
 repository, and the code that draws it is reviewable.
@@ -239,7 +244,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 298 tests; render tests skip without a GPU
+cargo test --workspace      # 317 tests; render tests skip without a GPU
 cargo run -p rustory-vn -- probe
 ```
 
@@ -373,6 +378,12 @@ depends on history (a fight that is harder the second time, a quiz that only ask
 about a scene already read) without letting it rewrite the story. See
 [ADR 0012](docs/adr/0012-gameplay-sees-the-story.md) for why it is a copy and not
 `&Narrative`.
+
+A system also draws its own screen. `view` returns a `GameplayView`: text, panels, images and
+bars in the engine's 1280×720 design box, coloured by role rather than by value, so the project
+keeps its palette and a system stays portable. `rustory shot <story> --at <node>:exit` renders
+one without a window — see the last two screenshots above and
+[ADR 0013](docs/adr/0013-gameplay-draws-itself.md).
 
 ## Contributing
 

@@ -18,7 +18,7 @@ pub trait GameplaySystem {
         -> Result<(), CoreError>;
     fn step(&mut self, ctx: &mut GameplayContext<'_>) -> Option<OutcomeKey>;
     fn cancel(&mut self);
-    fn prompt(&self) -> Option<String> { None }
+    fn view(&self) -> Option<GameplayView> { None }
 
     // Optional: only a system with state begin cannot rebuild needs these.
     fn save(&self) -> Result<Option<ron::Value>, CoreError> { Ok(None) }
@@ -26,7 +26,7 @@ pub trait GameplaySystem {
 }
 ```
 
-Five methods with distinct jobs:
+Each method has one job:
 
 - `begin` takes the config the script wrote and parses it into a strong type
   **itself**. A failure returns an error and the handover does not happen.
@@ -34,7 +34,7 @@ Five methods with distinct jobs:
   back".
 - `cancel` fires when the story is interrupted (window closed, a save loaded
   elsewhere). It must leave no residue.
-- `prompt` is what the player sees. The default shows nothing.
+- `view` is what the player sees. The default draws nothing; see below.
 - `save` / `restore` persist whatever `begin` cannot rebuild. Both have defaults,
   so a stateless system writes nothing. See section 6.
 
@@ -71,6 +71,50 @@ next is by reporting an `OutcomeKey`. That is not a convention. It is type-level
 
 `begin` receives the same snapshot, because a system that varies its content by context has to
 choose before the first frame, not after it.
+
+### What the player sees
+
+`view` returns a `GameplayView`: a list of elements in a 1280×720 design box, drawn in order
+over the story.
+
+```rust
+pub enum Element {
+    Text  { text: String, rect: ViewRect, size: f32, tone: Tone, align: Align },
+    Panel { rect: ViewRect, tone: Tone, border: Option<Tone> },
+    Image { name: String, rect: ViewRect },
+    Bar   { rect: ViewRect, fraction: f32, tone: Tone },
+}
+```
+
+Four kinds on purpose. A board is panels and images; a cursor is a panel; a health bar is a
+`Bar`; a scoreboard is text. Anything that cannot be said with these four is a request for a
+fifth, and making that request is the review.
+
+`Tone` names a role — `Panel`, `Raised`, `Text`, `Muted`, `Accent`, `Danger`, `Success`,
+`Edge` — not a colour. The palette belongs to the project (`rustory_vn_render::Palette`), so a
+system moved into someone else's game arrives without a visual identity to argue about.
+
+Coordinates are in the same 1280×720 box the engine's own layout uses. A system never learns
+the window size: the window letterboxes the box, and a resized window must not change the
+rules.
+
+Returning `None` — or an empty view — is legal. The story's last frame stays on screen, which
+is the honest presentation for a system with nothing to show. The engine will not invent a
+screen on the system's behalf, and a headless run (`rustory shot`, tests) needs no special
+case.
+
+**Why not a UI toolkit.** Every element is a promise to keep drawing it for as long as the
+engine lives. Four is what two shipped systems and a documented example actually need; a fifth
+needs a system that cannot work without it.
+
+**What a view cannot do.** Draw outside its own rectangles, load a font, name a colour, or
+react to a pointer. The first three are decisions that belong to the project, not to a
+rule. The last is the next gap: input today is `Confirm` and `Select { index }`, enough for a
+countdown and a quiz, not enough for a drag. When a system needs a pointer, that is an ADR, not
+a workaround in `Stats`.
+
+Two front-ends draw views — the player and the editor's preview — and both call
+`paint_gameplay_view`, so a change to how a `Bar` looks cannot land in one and not the other.
 
 ---
 
@@ -188,9 +232,16 @@ impl GameplaySystem for MySystem {
         self.remaining = 0;
     }
 
-    fn prompt(&self) -> Option<String> {
+    fn view(&self) -> Option<GameplayView> {
         self.config.as_ref()?;
-        Some(format!("{}ms left", self.remaining))
+        // The simplest possible screen: one line of text, no shapes. A system that wants a bar
+        // or a board adds elements; it never draws pixels itself.
+        Some(GameplayView::new().push(Element::text(
+            format!("{}ms left", self.remaining),
+            ViewRect::new(60.0, 60.0, 1160.0, 40.0),
+            28.0,
+            Tone::Muted,
+        )))
     }
 }
 ```
@@ -247,8 +298,9 @@ That is what "additive extension" means in practice.
 
 ### Do not try to reach more state
 
-`GameplayContext` has no stage and no story graph. Do not add a back door —
-stuffing a serialised stage into `Stats`, for example.
+`GameplayContext` has no stage and no story graph. What it does have is a`NarrativeSnapshot`:
+where the story is and where it has been, copied, read-only. If that is not enough, do not add
+a back door — stuffing a serialised stage into `Stats`, for example.
 
 If you genuinely need it, the correct sequence is:
 
@@ -276,10 +328,11 @@ ctx.stats.add("correct", 1);                // will collide with another system
 
 `Stats` keys are strings. The compiler will not catch a typo.
 
-### Do not do heavy work in `step`
+### Do not do heavy work in `step` — or in `view`
 
-It runs every frame. Parse config in `begin`, allocate in `begin`; `step` does
-arithmetic and state transitions only.
+`step` runs every frame. `view` is called every frame too, by both front-ends. Parse config in
+`begin`, allocate in `begin`; `step` does arithmetic and state transitions only, and `view`
+builds a small value — it must not reshape text or touch the filesystem.
 
 ---
 
@@ -319,7 +372,8 @@ Worth covering:
 - every outcome key at least once;
 - boundaries: the expiry frame, an impossible index, an empty config;
 - `begin` works again after `cancel`;
-- a rejected config leaves internal state **unchanged**.
+- a rejected config leaves internal state **unchanged**;
+- what the view says: the option text is present, and a bar's fraction moves with the clock.
 
 See the nine tests in `crates/rustory-vn-gameplay-timer/src/lib.rs`.
 

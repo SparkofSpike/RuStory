@@ -283,27 +283,97 @@ impl GameplaySystem for Quiz {
         self.answers.clear();
     }
 
-    fn prompt(&self) -> Option<String> {
+    /// The screen: which round, the question, its options, what has been answered, and how far
+    /// through the quiz the player is.
+    ///
+    /// The answer list is the whole point of this system existing as a second sample: it is state
+    /// a countdown could never produce, and drawing it is what proves the view channel carries
+    /// more than one string.
+    fn view(&self) -> Option<GameplayView> {
         let config = self.config.as_ref()?;
-        let round = config.rounds.get(self.current)?;
+        let total = config.rounds.len();
 
-        let header = config.prompt.as_deref().unwrap_or("Answer");
-        let options = round
-            .options
-            .iter()
-            .enumerate()
-            .map(|(index, option)| format!("{}. {option}", index + 1))
-            .collect::<Vec<_>>()
-            .join("   ");
+        // One centred column, the same width the timer uses. A quiz is a list of questions, not
+        // a full-bleed layout: an option that stretches the whole screen makes a two-word answer
+        // look like a sentence.
+        let width = 760.0;
+        let x = (VIEW_WIDTH - width) / 2.0;
+        let counter_width = 200.0;
 
-        Some(format!(
-            "{header}  [{}/{}]\n{question}\n{options}",
-            self.current + 1,
-            config.rounds.len(),
-            question = round.question,
-        ))
+        let mut view = GameplayView::with_capacity(6 + total)
+            .push(Element::panel(ViewRect::full(), Tone::Panel))
+            .push(Element::text(
+                config.prompt.as_deref().unwrap_or("Answer"),
+                ViewRect::new(x, 56.0, width - counter_width, 40.0),
+                32.0,
+                Tone::Muted,
+            ))
+            .push(Element::centered_text(
+                format!("{} / {}", (self.current + 1).min(total), total),
+                ViewRect::new(x + width - counter_width, 56.0, counter_width, 40.0),
+                28.0,
+                Tone::Muted,
+            ));
+
+        if !self.answers.is_empty() {
+            // "1:2" reads as "round 1, option 2 picked". The correctness verdict is not shown
+            // mid-quiz: a player who is told after each question is not taking a quiz.
+            let answered = self
+                .answers
+                .iter()
+                .enumerate()
+                .map(|(index, picked)| format!("{}:{} ", index + 1, picked + 1))
+                .collect::<String>();
+            view = view.push(Element::text(
+                format!("Answered — {}", answered.trim_end()),
+                ViewRect::new(x, 560.0, width, 30.0),
+                22.0,
+                Tone::Muted,
+            ));
+        }
+
+        let progress = self.current as f32 / total.max(1) as f32;
+
+        let Some(round) = config.rounds.get(self.current) else {
+            return Some(view.push(Element::bar(
+                ViewRect::new(x, 640.0, width, 12.0),
+                1.0,
+                Tone::Success,
+            )));
+        };
+
+        view = view.push(Element::text(
+            round.question.as_str(),
+            ViewRect::new(x, 140.0, width, 90.0),
+            34.0,
+            Tone::Text,
+        ));
+
+        let height = 64.0;
+        let gap = 14.0;
+        for (index, option) in round.options.iter().enumerate() {
+            let rect = ViewRect::new(x, 250.0 + index as f32 * (height + gap), width, height);
+            view = view
+                .push(Element::outlined(rect, Tone::Raised, Tone::Edge))
+                .push(Element::text(
+                    format!("{}. {option}", index + 1),
+                    ViewRect::new(
+                        rect.x + 24.0,
+                        rect.y + 16.0,
+                        rect.width - 48.0,
+                        rect.height - 32.0,
+                    ),
+                    30.0,
+                    Tone::Text,
+                ));
+        }
+
+        Some(view.push(Element::bar(
+            ViewRect::new(x, 640.0, width, 12.0),
+            progress,
+            Tone::Accent,
+        )))
     }
-
     fn save(&self) -> Result<Option<ron::Value>, CoreError> {
         if self.config.is_none() {
             return Ok(None);
@@ -460,21 +530,37 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_reports_progress_question_and_options() {
+    fn the_view_reports_progress_question_and_options() {
         let mut quiz = Quiz::new();
         quiz.begin(Some(&config_ron()), snapshot())
             .expect("valid config");
 
-        let prompt = quiz.prompt().expect("prompt");
-        assert!(prompt.contains("[1/3]"), "got {prompt}");
-        assert!(prompt.contains("One?"), "got {prompt}");
-        assert!(prompt.contains("1. a"), "got {prompt}");
-        assert!(prompt.contains("2. b"), "got {prompt}");
+        let view = quiz.view().expect("a started quiz draws its screen");
+        let texts: Vec<&str> = view.texts().collect();
+        assert!(texts.contains(&"1 / 3"), "got {texts:?}");
+        assert!(texts.contains(&"One?"), "got {texts:?}");
+        assert!(texts.iter().any(|t| t.starts_with("1. a")), "got {texts:?}");
+        assert!(texts.iter().any(|t| t.starts_with("2. b")), "got {texts:?}");
+
+        let (_, before) = view.bars().next().expect("a progress bar");
+        assert!(before.abs() < 1e-6, "nothing answered yet, got {before}");
 
         answer(&mut quiz, 0, &mut Stats::default());
-        let prompt = quiz.prompt().expect("prompt");
-        assert!(prompt.contains("[2/3]"), "progress must advance: {prompt}");
-        assert!(prompt.contains("Two?"), "got {prompt}");
+
+        let view = quiz.view().expect("still drawing");
+        let texts: Vec<&str> = view.texts().collect();
+        assert!(texts.contains(&"2 / 3"), "progress must advance: {texts:?}");
+        assert!(texts.contains(&"Two?"), "got {texts:?}");
+        assert!(
+            texts.iter().any(|t| t.starts_with("Answered")),
+            "the answered list is this system's second sample: {texts:?}"
+        );
+
+        let (_, after) = view.bars().next().expect("a progress bar");
+        assert!(
+            (after - 1.0 / 3.0).abs() < 1e-6,
+            "one of three answered, got {after}"
+        );
     }
 
     #[test]

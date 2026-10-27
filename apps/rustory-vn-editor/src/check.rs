@@ -36,8 +36,8 @@ pub fn run(story: &Story, step: usize, out: Option<&Path>) -> Result<Report, Str
     let paths = preview::AssetPaths::from_cwd();
     let (bank, _images) = preview::textures(&mut renderer, &paths);
 
-    let prompt = narrative.gameplay_prompt(&registry);
-    let frame = preview::build_frame(&narrative, &bank, prompt.as_deref());
+    let view = narrative.gameplay_view(&registry);
+    let frame = preview::build_frame(&narrative, &bank, view.as_ref());
 
     let image = renderer
         .render_offscreen(&frame)

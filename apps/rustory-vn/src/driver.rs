@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use rustory_vn_core::{
-    GameplayInput, GameplayRegistry, Mode, Narrative, NodeId, OutcomeKey, Story,
+    GameplayInput, GameplayRegistry, GameplayView, Mode, Narrative, NodeId, OutcomeKey, Story,
 };
 use rustory_vn_gameplay_quiz::Quiz;
 use rustory_vn_gameplay_timer::TimedChoice;
@@ -165,13 +165,13 @@ pub fn click(narrative: &mut Narrative, registry: &mut GameplayRegistry) -> Resu
 pub fn build_frame<'a>(
     narrative: &'a Narrative,
     bank: &'a TextureBank,
-    prompt: Option<&'a str>,
+    view: Option<&'a GameplayView>,
     hint: Option<&'a str>,
 ) -> rustory_vn_render::Frame {
     Scene {
         narrative,
         textures: bank,
-        gameplay_prompt: prompt,
+        gameplay_view: view,
         hint,
     }
     .build()

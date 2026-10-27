@@ -17,7 +17,9 @@
 //! `click` semantics the CLI uses, so "step 3" in the editor and "step 3" on the
 //! command line mean the same state. Nothing about the frame itself is faked.
 
-use rustory_vn_core::{GameplayInput, GameplayRegistry, Mode, Narrative, NodeId, Story};
+use rustory_vn_core::{
+    GameplayInput, GameplayRegistry, GameplayView, Mode, Narrative, NodeId, Story,
+};
 use rustory_vn_edit::prelude::*;
 use rustory_vn_render::{Frame, Rect, Renderer, Rgba8Image};
 
@@ -220,8 +222,8 @@ impl Preview {
         }
 
         let (bank, image_count) = bank_for(&mut self.bank, renderer, paths);
-        let prompt = narrative.gameplay_prompt(&registry);
-        let frame = build_frame(&narrative, &bank, prompt.as_deref());
+        let view = narrative.gameplay_view(&registry);
+        let frame = build_frame(&narrative, &bank, view.as_ref());
 
         let image = renderer
             .render_offscreen(&frame)
@@ -400,7 +402,11 @@ pub fn step(narrative: &mut Narrative, registry: &mut GameplayRegistry) -> Resul
 /// into the renderer, which ADR 0001 forbids. The duplication is real and is recorded
 /// as a known cost; the guarantee that keeps it honest is that both call the same
 /// `rustory_vn_render` primitives, so a change to the *engine* shows up in both.
-pub fn build_frame(narrative: &Narrative, bank: &TextureBank, prompt: Option<&str>) -> Frame {
+pub fn build_frame(
+    narrative: &Narrative,
+    bank: &TextureBank,
+    view: Option<&GameplayView>,
+) -> Frame {
     use rustory_vn_render::{Quad, TextItem};
 
     const DIALOGUE: Rect = Rect::new(60.0, 510.0, 1160.0, 180.0);
@@ -499,17 +505,12 @@ pub fn build_frame(narrative: &Narrative, bank: &TextureBank, prompt: Option<&st
         }
     }
 
-    if let Some(prompt) = prompt {
-        let plate = Rect::new(DIALOGUE.x, DIALOGUE.y, DIALOGUE.width, DIALOGUE.height);
-        frame.push_quad(Quad::solid(plate, COL_CHOICE));
-        frame.push_quad(Quad::solid(
-            Rect::new(plate.x, plate.y, plate.width, 2.0),
-            COL_EDGE,
-        ));
-        frame.push_text(
-            TextItem::new(prompt, plate.x + 32.0, plate.y + 28.0, 28.0)
-                .with_color(COL_TEXT)
-                .with_wrap(plate.width - 64.0),
+    if let Some(view) = view {
+        rustory_vn_render::paint_gameplay_view(
+            view,
+            &rustory_vn_render::Palette::default(),
+            &|name: &str| bank.resolve(name),
+            &mut frame,
         );
     }
 

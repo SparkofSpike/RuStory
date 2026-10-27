@@ -17,10 +17,12 @@
 mod frame;
 mod image;
 mod renderer;
+mod view;
 
-pub use frame::{FontChoice, Frame, Quad, Rect, Rgba, TextItem, TextureId, Uv};
+pub use frame::{FontChoice, Frame, Quad, Rect, Rgba, TextAlign, TextItem, TextureId, Uv};
 pub use image::{ImageError, Rgba8Image};
 pub use renderer::{RenderError, Renderer, TARGET_FORMAT};
+pub use view::{Palette, TextureResolver, paint_gameplay_view};
 
 /// Probes the GPU backend without opening a window.
 ///

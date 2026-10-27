@@ -9,8 +9,8 @@
 //! (imports, a test function) added.
 
 use rustory_vn_core::{
-    CoreError, GameplayContext, GameplayInput, GameplaySystem, NarrativeSnapshot, NodeId,
-    OutcomeKey, Stats, SystemId,
+    CoreError, Element, GameplayContext, GameplayInput, GameplaySystem, GameplayView,
+    NarrativeSnapshot, NodeId, OutcomeKey, Stats, SystemId, Tone, ViewRect,
 };
 use serde::Deserialize;
 
@@ -101,9 +101,16 @@ impl GameplaySystem for MySystem {
         self.remaining = 0;
     }
 
-    fn prompt(&self) -> Option<String> {
+    fn view(&self) -> Option<GameplayView> {
         self.config.as_ref()?;
-        Some(format!("{}ms left", self.remaining))
+        // The simplest possible screen: one line of text, no shapes. A system that wants a bar
+        // or a board adds elements; it never draws pixels itself.
+        Some(GameplayView::new().push(Element::text(
+            format!("{}ms left", self.remaining),
+            ViewRect::new(60.0, 60.0, 1160.0, 40.0),
+            28.0,
+            Tone::Muted,
+        )))
     }
 }
 

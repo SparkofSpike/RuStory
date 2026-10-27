@@ -69,8 +69,8 @@ Do not add `Co-Authored-By` trailers for tools. Authorship is the person who dec
 example. The shape is always the same:
 
 1. New crate, `#![forbid(unsafe_code)]`, depending on `rustory-vn-core` and nothing above it.
-2. A type implementing `GameplaySystem`: `step`, `prompt`, and `save`/`restore` if it holds
-   state that a save must carry.
+2. A type implementing `GameplaySystem`: `begin`, `step`, `view` for what the player sees, and
+   `save`/`restore` if it holds state that a save must carry.
 3. One registration line in the app's registry.
 4. A story node whose exit is `Exit::Gameplay` naming the system and mapping each outcome
    key to a node.

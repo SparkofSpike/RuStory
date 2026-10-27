@@ -241,22 +241,73 @@ impl GameplaySystem for TimedChoice {
         Ok(())
     }
 
-    fn prompt(&self) -> Option<String> {
+    /// What the player sees: the question, the options, and a bar that is the clock.
+    ///
+    /// The bar exists because a textual "(2.4s)" is a number the player has to read and
+    /// subtract from; a bar is a shape they can glance at. Both are drawn, since the number is
+    /// what a screenshot test can assert on and the bar is what a person actually uses.
+    fn view(&self) -> Option<GameplayView> {
         let config = self.config.as_ref()?;
-        let base = config.prompt.as_deref().unwrap_or("Choose quickly");
-        // The options belong in the prompt: without them the player is asked to
-        // answer something they were never shown.
-        let options = config
-            .options
-            .iter()
-            .enumerate()
-            .map(|(index, option)| format!("{}. {option}", index + 1))
-            .collect::<Vec<_>>()
-            .join("      ");
-        Some(format!(
-            "{base}   ({:.1}s)\n{options}",
-            self.remaining_ms as f32 / 1000.0
-        ))
+        let duration = config.duration_ms.max(1) as f32;
+        let fraction = self.remaining_ms as f32 / duration;
+        let tone = if fraction <= 0.25 {
+            Tone::Danger
+        } else {
+            Tone::Accent
+        };
+
+        let width = 760.0;
+        let x = (VIEW_WIDTH - width) / 2.0;
+        let height = 72.0;
+        let gap = 16.0;
+        let top = 280.0;
+
+        let mut view = GameplayView::with_capacity(config.options.len() * 2 + 5)
+            .push(Element::panel(ViewRect::full(), Tone::Panel))
+            .push(Element::centered_text(
+                config.prompt.as_deref().unwrap_or("Choose quickly"),
+                ViewRect::new(60.0, 120.0, VIEW_WIDTH - 120.0, 48.0),
+                40.0,
+                Tone::Text,
+            ))
+            .push(Element::centered_text(
+                format!("{:.1}s", self.remaining_ms as f32 / 1000.0),
+                ViewRect::new(60.0, 184.0, VIEW_WIDTH - 120.0, 40.0),
+                30.0,
+                if fraction <= 0.25 {
+                    Tone::Danger
+                } else {
+                    Tone::Muted
+                },
+            ));
+
+        for (index, option) in config.options.iter().enumerate() {
+            let rect = ViewRect::new(x, top + index as f32 * (height + gap), width, height);
+            let border = if self.chosen == Some(index) {
+                Tone::Accent
+            } else {
+                Tone::Edge
+            };
+            view = view
+                .push(Element::outlined(rect, Tone::Raised, border))
+                .push(Element::text(
+                    format!("{}. {option}", index + 1),
+                    ViewRect::new(
+                        rect.x + 24.0,
+                        rect.y + 16.0,
+                        rect.width - 48.0,
+                        rect.height - 32.0,
+                    ),
+                    30.0,
+                    Tone::Text,
+                ));
+        }
+
+        Some(view.push(Element::bar(
+            ViewRect::new(x, 620.0, width, 14.0),
+            fraction,
+            tone,
+        )))
     }
 }
 
@@ -430,14 +481,37 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_reports_the_time_left_and_the_options() {
+    fn the_view_shows_the_clock_as_a_bar_and_the_options_as_text() {
         let mut system = TimedChoice::new();
         system
             .begin(Some(&config_value()), snapshot())
             .expect("config is valid");
-        let prompt = system.prompt().expect("prompt");
-        assert!(prompt.contains("1.0s"), "got {prompt}");
-        assert!(prompt.contains("1. a"), "options must be visible: {prompt}");
-        assert!(prompt.contains("2. b"), "options must be visible: {prompt}");
+
+        let view = system.view().expect("a started system draws its screen");
+        let texts: Vec<&str> = view.texts().collect();
+        assert!(texts.iter().any(|t| t.contains("1.0s")), "got {texts:?}");
+        assert!(
+            texts.iter().any(|t| t.starts_with("1. a")),
+            "options must be visible: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.starts_with("2. b")),
+            "options must be visible: {texts:?}"
+        );
+
+        // The bar is what the old text-only prompt could not be: the clock as a shape the
+        // player can glance at instead of subtracting numbers.
+        let (_, full) = view.bars().next().expect("a countdown draws a bar");
+        assert!((full - 1.0).abs() < 1e-6, "starts full, got {full}");
+
+        let mut stats = Stats::default();
+        system.step(&mut ctx(250, &[], &mut stats));
+
+        let view = system.view().expect("still drawing");
+        let (_, quarter_gone) = view.bars().next().expect("a bar");
+        assert!(
+            (quarter_gone - 0.75).abs() < 1e-6,
+            "the bar must follow the clock, got {quarter_gone}"
+        );
     }
 }

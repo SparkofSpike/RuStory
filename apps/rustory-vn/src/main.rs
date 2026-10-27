@@ -58,7 +58,8 @@ OPTIONS for shot / play / save / resume:
     --assets <dir>     Where sprite and background PNGs live (default: assets)
     --out <file>       Output path for shot (.png) or save (.ron)
     --advance <n>      Clicks to simulate before acting (default: 0)
-    --at <node>[:<beat>]  Stop at a named position instead of counting clicks
+    --at <node>[:<beat>|:exit]
+                       Stop at a named position instead of counting clicks
     --finish           resume: keep playing to an ending instead of reporting
     --font <family>    Typeface for all text; load files from <assets>/fonts first
                        (no --font means the platform's default sans-serif)
@@ -368,19 +369,44 @@ fn transcript(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Where `--at` points: a node, and optionally a beat inside it.
+/// Where `--at` points.
 ///
 /// `prologue` means "arrive at that node", which is the common case; `prologue:3` also
 /// asks for the fourth beat. The beat is a runtime index, not a script index: entering
 /// a node runs its leading non-blocking beats (a background, an actor) before the first
 /// line appears, so `prologue:0` is usually already behind you.
-fn parse_at(value: &str) -> (NodeId, Option<usize>) {
-    if let Some((node, beat)) = value.rsplit_once(':')
-        && let Ok(beat) = beat.parse::<usize>()
-    {
-        return (NodeId::from(node), Some(beat));
+///
+/// `prologue:exit` is the third position and the one a gameplay author wants most: past
+/// the node's last beat, so the frame shows the choice or the gameplay system the node
+/// hands control to — the screen that is otherwise impossible to screenshot without a
+/// window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Position {
+    Node(NodeId),
+    Beat(NodeId, usize),
+    Exit(NodeId),
+}
+
+impl Position {
+    fn node(&self) -> &NodeId {
+        match self {
+            Self::Node(node) | Self::Beat(node, _) | Self::Exit(node) => node,
+        }
     }
-    (NodeId::from(value), None)
+}
+
+fn parse_at(value: &str) -> Position {
+    if let Some((node, tail)) = value.rsplit_once(':') {
+        if tail == "exit" {
+            return Position::Exit(NodeId::from(node));
+        }
+        // Node ids are chosen by authors, so a colon that is not a beat or `exit` must not
+        // be quietly eaten: `act:one` is one node, not node `act` beat `one`.
+        if let Ok(beat) = tail.parse::<usize>() {
+            return Position::Beat(NodeId::from(node), beat);
+        }
+    }
+    Position::Node(NodeId::from(value))
 }
 
 /// Advance until the narrative is showing `target`.
@@ -393,29 +419,49 @@ fn seek(
     registry: &mut rustory_vn_core::GameplayRegistry,
     target: &str,
 ) -> Result<(), String> {
-    let (node, beat) = parse_at(target);
+    let position = parse_at(target);
+    let node = position.node().clone();
     if !narrative.story().nodes.contains_key(&node) {
         return Err(format!("no node `{node}` in this story"));
     }
 
     const LIMIT: usize = 1000;
+    // Whether the target node has been reached at all. Without this, passing *through* an
+    // earlier gameplay node would satisfy `Exit` early: the cursor is not the target yet, and
+    // "we are not there" is not the same as "we have left".
+    let mut reached = false;
     for _ in 0..LIMIT {
         if narrative.cursor() == &node {
-            match beat {
+            reached = true;
+            match &position {
                 // Arriving is the whole request when no beat was named.
-                None => return Ok(()),
-                Some(beat) if narrative.beat_index() == beat => return Ok(()),
+                Position::Node(_) => return Ok(()),
+                Position::Beat(_, beat) if narrative.beat_index() == *beat => return Ok(()),
                 // Forwards only: rewinding would need a second story position, and a
                 // tool that silently restarts is worse than one that says no.
-                Some(beat) if narrative.beat_index() > beat => {
+                Position::Beat(_, beat) if narrative.beat_index() > *beat => {
                     return Err(format!(
                         "`{node}` is already past beat {beat} (showing {}); `--at` moves forward only",
                         narrative.beat_index()
                     ));
                 }
-                Some(_) => {}
+                Position::Beat(_, _) => {}
+                // Keep clicking while the node is still showing prose; stop as soon as it
+                // hands over to a choice or a system, which is the frame that was asked for.
+                Position::Exit(_) => {
+                    if !matches!(
+                        narrative.mode(),
+                        rustory_vn_core::Mode::Revealing | rustory_vn_core::Mode::AwaitingAdvance
+                    ) {
+                        return Ok(());
+                    }
+                }
             }
+        } else if reached && matches!(position, Position::Exit(_)) {
+            // The node's exit has taken effect and the story moved on.
+            return Ok(());
         }
+
         if matches!(narrative.mode(), rustory_vn_core::Mode::Finished { .. }) {
             return Err(format!("the story ended before reaching `{target}`"));
         }
@@ -541,8 +587,8 @@ fn shot(args: &[String]) -> Result<(), String> {
         println!("font: {family}");
     }
 
-    let prompt = narrative.gameplay_prompt(&registry);
-    let frame = driver::build_frame(&narrative, &bank, prompt.as_deref(), None);
+    let view = narrative.gameplay_view(&registry);
+    let frame = driver::build_frame(&narrative, &bank, view.as_ref(), None);
 
     let image = renderer
         .render_offscreen(&frame)
@@ -798,18 +844,34 @@ mod tests {
 
     #[test]
     fn a_bare_node_name_means_arrive_at_the_node() {
-        assert_eq!(parse_at("prologue"), (NodeId::from("prologue"), None));
+        assert_eq!(
+            parse_at("prologue"),
+            Position::Node(NodeId::from("prologue"))
+        );
     }
 
     #[test]
     fn a_colon_names_a_beat_inside_the_node() {
-        assert_eq!(parse_at("prologue:3"), (NodeId::from("prologue"), Some(3)));
+        assert_eq!(
+            parse_at("prologue:3"),
+            Position::Beat(NodeId::from("prologue"), 3)
+        );
+    }
+
+    #[test]
+    fn exit_names_the_screen_the_node_hands_over_to() {
+        // The position a gameplay author needs: past the last beat, so the frame is the
+        // system's own screen rather than the line that preceded it.
+        assert_eq!(
+            parse_at("honest:exit"),
+            Position::Exit(NodeId::from("honest"))
+        );
     }
 
     #[test]
     fn a_colon_without_a_number_stays_part_of_the_node_name() {
         // Node ids are chosen by authors, so a colon that is not a beat must not be
         // quietly eaten: `act:one` is one node, not node `act` beat `one`.
-        assert_eq!(parse_at("act:one"), (NodeId::from("act:one"), None));
+        assert_eq!(parse_at("act:one"), Position::Node(NodeId::from("act:one")));
     }
 }

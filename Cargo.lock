@@ -2895,6 +2895,7 @@ dependencies = [
  "image",
  "png",
  "pollster 0.4.0",
+ "rustory-vn-core",
  "wgpu",
 ]
 

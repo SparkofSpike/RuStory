@@ -365,13 +365,13 @@ impl Player {
             return;
         };
 
-        let prompt = self.narrative.gameplay_prompt(&self.registry);
+        let view = self.narrative.gameplay_view(&self.registry);
         // The window may be a different size than the logical resolution; the
         // scene is laid out at the logical size and scaled by the surface.
         let mut frame = driver::build_frame(
             &self.narrative,
             &gpu.bank,
-            prompt.as_deref(),
+            view.as_ref(),
             // A save notice takes the hint line for a few seconds, then the usual
             // key reminder comes back. Overlaying both would make neither readable.
             Some(self.notice.as_deref().unwrap_or(HINT)),

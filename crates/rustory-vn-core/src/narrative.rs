@@ -573,13 +573,13 @@ impl Narrative {
         }
     }
 
-    /// A short prompt from the active gameplay system, if it has one.
+    /// What the active gameplay system draws, if it has control and draws anything.
     #[must_use]
-    pub fn gameplay_prompt(&self, registry: &GameplayRegistry) -> Option<String> {
+    pub fn gameplay_view(&self, registry: &GameplayRegistry) -> Option<crate::view::GameplayView> {
         let Mode::Suspended { spec } = &self.mode else {
             return None;
         };
-        registry.prompt_of(&spec.system)
+        registry.view_of(&spec.system)
     }
 
     // --- internals -------------------------------------------------------

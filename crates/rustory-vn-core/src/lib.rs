@@ -62,6 +62,7 @@ mod save;
 mod stage;
 mod story;
 mod text;
+mod view;
 
 pub use error::CoreError;
 pub use event::{NarrativeEvent, TickReport};
@@ -75,14 +76,16 @@ pub use save::{GameplaySave, SAVE_VERSION, SaveState};
 pub use stage::{ActorOnStage, Stage};
 pub use story::{Beat, Choice, Exit, GameplaySpec, Node, Slot, Story, StoryMeta};
 pub use text::{LocaleTable, Locales, Text, is_valid_language_tag};
+pub use view::{Align, Element, GameplayView, Tone, VIEW_HEIGHT, VIEW_WIDTH, ViewRect};
 
 /// The types almost every caller needs.
 pub mod prelude {
     pub use crate::{
-        ActorId, Beat, Choice, ChoiceMade, CoreError, Exit, GameplayContext, GameplayInput,
-        GameplayRegistry, GameplaySave, GameplaySpec, GameplaySystem, LineView, LocaleTable,
-        Locales, Mode, Narrative, NarrativeEvent, NarrativeSnapshot, Node, NodeId, OutcomeKey,
-        SAVE_VERSION, SaveState, Slot, Stage, Stats, Story, StoryMeta, SystemId, Text, TickReport,
-        decode_state, encode_state,
+        ActorId, Align, Beat, Choice, ChoiceMade, CoreError, Element, Exit, GameplayContext,
+        GameplayInput, GameplayRegistry, GameplaySave, GameplaySpec, GameplaySystem, GameplayView,
+        LineView, LocaleTable, Locales, Mode, Narrative, NarrativeEvent, NarrativeSnapshot, Node,
+        NodeId, OutcomeKey, SAVE_VERSION, SaveState, Slot, Stage, Stats, Story, StoryMeta,
+        SystemId, Text, TickReport, Tone, VIEW_HEIGHT, VIEW_WIDTH, ViewRect, decode_state,
+        encode_state,
     };
 }

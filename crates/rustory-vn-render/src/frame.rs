@@ -257,6 +257,17 @@ impl FontChoice {
     }
 }
 
+/// Horizontal alignment of a text run inside its wrap width.
+///
+/// Two choices rather than cosmic-text's full set: the engine's own layout uses left-aligned
+/// prose and centred headings, and a justified line in a dialogue box looks like a mistake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextAlign {
+    #[default]
+    Left,
+    Center,
+}
+
 /// A run of text to shape and draw.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextItem {
@@ -270,6 +281,8 @@ pub struct TextItem {
     pub max_width: f32,
     /// Which face to shape with.
     pub font: FontChoice,
+    /// Where each line starts inside `max_width`.
+    pub align: TextAlign,
 }
 
 impl TextItem {
@@ -284,12 +297,19 @@ impl TextItem {
             color: Rgba::rgb(255, 255, 255),
             max_width: f32::INFINITY,
             font: FontChoice::default(),
+            align: TextAlign::Left,
         }
     }
 
     #[must_use]
     pub fn with_font(mut self, font: FontChoice) -> Self {
         self.font = font;
+        self
+    }
+
+    #[must_use]
+    pub fn with_align(mut self, align: TextAlign) -> Self {
+        self.align = align;
         self
     }
 

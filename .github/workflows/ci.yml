@@ -176,6 +176,19 @@ jobs:
       - name: Render a frame by position
         run: cargo run -q -p rustory-vn -- shot stories/demo.ron --at honest:2 --out /tmp/frame.png
 
+      # A gameplay system draws its own screen now, which means the handover is no longer a
+      # block of text in the dialogue box. Both shipped systems are rendered and told apart:
+      # identical bytes would mean the view never reached the frame.
+      - name: Render the two gameplay screens
+        run: |
+          cargo run -q -p rustory-vn -- shot stories/demo.ron --at honest:exit --out /tmp/timer.png \
+            | tee /tmp/timer.txt
+          cargo run -q -p rustory-vn -- shot stories/demo.ron --at confession:exit --out /tmp/quiz.png \
+            | tee /tmp/quiz.txt
+          grep -q "gameplay: timer.timed_choice" /tmp/timer.txt
+          grep -q "gameplay: quiz.multi_round" /tmp/quiz.txt
+          ! cmp -s /tmp/timer.png /tmp/quiz.png
+
       - name: Render a frame in a chosen language
         run: |
           cargo run -q -p rustory-vn -- shot stories/localised.ron --language ja --out /tmp/ja.png

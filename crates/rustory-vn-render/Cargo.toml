@@ -14,3 +14,4 @@ bytemuck = { workspace = true }
 pollster = { workspace = true }
 png = { workspace = true }
 image = { workspace = true }
+rustory-vn-core = { path = "../rustory-vn-core" }

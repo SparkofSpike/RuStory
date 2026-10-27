@@ -1,6 +1,8 @@
 # ADR 0003 — Gameplay integration: trait, registry, opaque config
 
-- **Status**: Accepted, implemented
+- **Status**: Accepted, implemented. Contract widened since: [0012](0012-gameplay-sees-the-story.md)
+  added a read-only narrative snapshot, [0013](0013-gameplay-draws-itself.md) replaced the
+  single-string prompt with a structured view.
 - **Date**: 2026-10-26
 - **Open question**: what shape should the gameplay integration API take?
 

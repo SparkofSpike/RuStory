@@ -553,7 +553,10 @@ impl Renderer {
                 &item.text,
                 &Attrs::new().family(family_for(&item.font)),
                 Shaping::Advanced,
-                None,
+                Some(match item.align {
+                    crate::frame::TextAlign::Left => glyphon::cosmic_text::Align::Left,
+                    crate::frame::TextAlign::Center => glyphon::cosmic_text::Align::Center,
+                }),
             );
             buffer.shape_until_scroll(&mut self.font_system, false);
             buffers.push(buffer);
