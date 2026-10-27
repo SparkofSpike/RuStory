@@ -6,10 +6,11 @@ rediscover under pressure.
 
 ## What blocks a publish today
 
-**The crate name is taken.** `rustory` on crates.io is a 2018 disk-usage tool (MIT, not
-yanked). Local package and binary names are unaffected, but a publish needs a free name.
-Measured with `cargo search` at the time of writing: `rustory-vn`, `rustory-engine` and
-`rustory-vn-core` were free.
+**The names are settled, which they were not.** `rustory` on crates.io is a 2018 disk-usage tool
+(MIT, not yanked), so the workspace publishes as `rustory-vn-*` while the repository stays
+`RuStory` and the binaries stay `rustory` / `rustory-editor`. The reasoning is recorded in
+[ADR 0016](adr/0016-three-names.md); the practical consequence for a publish is that every
+package name carries the `-vn` suffix and every documented command does not.
 
 **The licence texts are not in the crate directories.** `license = "MIT OR Apache-2.0"` is a
 correct SPDX declaration and it is what crates.io displays, but the convention — and the
@@ -42,6 +43,9 @@ cargo package -p rustory-vn-core
 Publish in dependency order — `rustory-vn-core`, then `rustory-vn-script` / `rustory-vn-audio` /
 `rustory-vn-render`, then `rustory-vn-edit`, then the gameplay crates. Cargo refuses a publish
 whose dependencies are not on the registry yet, and the error names the missing one.
+
+`rustory-vn-gameplay-wasm` depends on `rustory-vn-core` and on `wasmi`; it publishes after the core
+and nothing else in the workspace depends on it.
 
 ## Versioning
 

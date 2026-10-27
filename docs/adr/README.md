@@ -24,6 +24,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0013](0013-gameplay-draws-itself.md) | A gameplay system draws its own screen | Accepted, implemented | How does a board, a cursor or a bar get on screen? |
 | [0014](0014-two-ways-back.md) | Two ways back: save slots for players, a timeline for authors | Accepted, implemented (timeline) | How does someone return to an earlier state? |
 | [0015](0015-wasm-tier.md) | A third tier: gameplay that arrives as WebAssembly | Accepted, implemented | How does untrusted gameplay run without rebuilding the engine? |
+| [0016](0016-three-names.md) | Three names, each with one job | Accepted, implemented | What is this thing called? |
 
 ## Status meanings
 
