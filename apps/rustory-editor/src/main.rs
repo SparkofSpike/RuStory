@@ -32,6 +32,7 @@ mod outcomes;
 mod panels;
 mod preview;
 mod recent;
+mod tab;
 
 use std::path::PathBuf;
 

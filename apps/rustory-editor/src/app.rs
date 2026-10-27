@@ -15,18 +15,26 @@
 //! change *which document is being edited*, not its contents, and they need to talk to
 //! the filesystem and to dialogs. Keeping them separate from `EditOp` means the
 //! operation layer stays free of I/O policy.
+//!
+//! # The window and the document
+//!
+//! [`EditorApp`] is the window: several [`Tab`]s, one shared renderer, one status line, one
+//! recent list. Everything that is about *a story* lives on a tab, and everything that is
+//! about *the window* lives here. The split is not cosmetic — a shared renderer per tab would
+//! be one GPU device per open file, and a shared draft deadline per window would write one
+//! story's recovery copy over another's.
 
 use std::path::{Path, PathBuf};
 
 use rustory_core::NodeId;
 use rustory_edit::Draft;
 use rustory_edit::Editor;
-use rustory_edit::prelude::*;
 
 use crate::dialogs;
 use crate::panels;
-use crate::preview::{AssetPaths, Preview, Step};
+use crate::preview::{AssetPaths, Preview};
 use crate::recent::RecentFiles;
+use crate::tab::Tab;
 
 /// A file-level request from the UI.
 ///
@@ -39,45 +47,28 @@ pub enum UiAction {
     OpenAt(PathBuf),
     New,
     Save,
-    SaveAs,
+    /// Save the tab at this index. The index is carried because a save reads a dialog and
+    /// writes a file, and the active tab may have changed by the time it runs.
+    SaveAs(usize),
+    /// Close the tab at this index, after asking about unsaved work.
+    Close(usize),
     /// Empty the recent list.
     ClearRecent,
 }
 
 pub struct EditorApp {
-    /// `None` only before a document exists.
-    pub editor: Option<Editor>,
-    pub selected: Option<NodeId>,
-    /// A pending "new node id" string, so the field can hold invalid text while the
-    /// user types. Parsed into a [`NodeId`] only on submit.
-    pub new_node_id: String,
-    /// Same idea for renaming: holds text until the author submits it.
-    pub rename_buffer: String,
-    /// Buffer for a new gameplay outcome key, so the field can hold text that is not
-    /// yet a valid key.
-    pub new_outcome: String,
-    /// Node-list filter. Not an edit: it changes what is shown, not what is stored, so
-    /// it takes no undo step.
-    pub node_filter: String,
-    /// Whether the story settings form is expanded.
-    pub show_story_settings: bool,
-    /// The actions the preview has replayed to reach the frame on screen. A path, not a
-    /// counter: the preview is a real `Narrative`, so the same list replayed against an
-    /// edited story still lands where the clicks did.
-    pub preview_steps: Vec<Step>,
+    /// Open documents, in tab order. May be empty — closing the last tab is allowed, and an
+    /// empty window offering "open a story" is better than one that refuses to close.
+    pub tabs: Vec<Tab>,
+    /// Which tab the panels and the shortcuts act on. Always a valid index into `tabs`.
+    pub active: usize,
+    /// The one GPU renderer, shared by every tab.
     pub preview: Preview,
-    /// Where to look for art, derived from the open file's location.
-    pub assets: AssetPaths,
-    /// Status line of the last preview render.
-    pub preview_status: String,
 
     /// Last thing that happened, shown in the status bar.
     pub status: String,
-    /// Whether the status is an error, so it can be coloured.
     pub status_is_error: bool,
 
-    /// Operations produced during this frame, applied before drawing the next.
-    pub pending: Vec<EditOp>,
     /// File-level requests produced during this frame.
     pub pending_actions: Vec<UiAction>,
 
@@ -88,60 +79,31 @@ pub struct EditorApp {
     /// edits one chapter every evening does not have to find it in a dialog again.
     pub recent: RecentFiles,
 
-    /// Where the working copy of the open document is written while it has unsaved
-    /// changes. `None` for an untitled story: a draft with no story to belong to has no
-    /// place to live and nothing to recover it into.
-    pub draft: Option<Draft>,
-    /// When to write the draft, if a write is pending.
-    ///
-    /// Debounced rather than written per keystroke: an editor that writes a file on every
-    /// character is a filesystem benchmark, and a crash one second after a change is still
-    /// covered by a two-second delay.
-    draft_due: Option<std::time::Instant>,
-    /// Whether the author has already agreed to lose the comments in this document.
-    ///
-    /// Once per document: asking on every save would train people to dismiss the dialog
-    /// without reading it, which is worse than not asking.
-    comment_warning_seen: bool,
     /// Whether the shortcut sheet is open.
     pub show_help: bool,
+}
 
-    /// The gameplay config text being edited, and a key saying what it was read from.
-    ///
-    /// A buffer rather than a binding to the document: the box has to hold text that is not
-    /// yet valid RON (half a parenthesis, a trailing comma) while the author types. The key is
-    /// `(node, story checksum)`, so an undo or an external edit refills the box instead of
-    /// leaving stale text that no longer describes the story.
-    pub config_key: Option<(NodeId, u64)>,
-    pub config_buffer: String,
+/// What a close decision was about, so the caller knows what to say afterwards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloseOutcome {
+    /// Nothing had unsaved work; it is closed.
+    Closed,
+    /// The author said no. Nothing changed.
+    Kept,
 }
 
 impl EditorApp {
     pub fn new(cc: &eframe::CreationContext<'_>, story: Option<String>) -> Self {
         let mut app = Self {
-            editor: None,
-            selected: None,
-            new_node_id: String::new(),
-            rename_buffer: String::new(),
-            new_outcome: String::new(),
-            node_filter: String::new(),
-            show_story_settings: false,
-            preview_steps: Vec::new(),
+            tabs: Vec::new(),
+            active: 0,
             preview: Preview::new(),
-            assets: AssetPaths::from_cwd(),
-            preview_status: String::new(),
             status: "Ready".to_owned(),
             status_is_error: false,
-            pending: Vec::new(),
             pending_actions: Vec::new(),
             close_confirmed: false,
             recent: RecentFiles::load(),
-            draft: None,
-            draft_due: None,
-            comment_warning_seen: false,
             show_help: false,
-            config_key: None,
-            config_buffer: String::new(),
         };
 
         // A list that mentions files deleted outside the editor is worse than a short
@@ -163,12 +125,36 @@ impl EditorApp {
         app
     }
 
-    /// Load a story, replacing whatever was open.
+    // --- the active tab ---------------------------------------------------
+
+    pub fn active_tab_mut(&mut self) -> Option<&mut Tab> {
+        self.tabs.get_mut(self.active)
+    }
+
+    /// The index of the tab editing `path`, if it is already open.
     ///
-    /// Refuses when there is unsaved work, after asking. Losing a scene to a misclick
-    /// is the one failure an editor must not have.
+    /// Comparing canonical-ish paths rather than raw ones: opening `stories/demo.ron` after
+    /// `E:\Coding\RuStory\stories\demo.ron` must find the tab, not make a second one for the
+    /// same file. Two tabs on one file would each hold their own copy, and the last save
+    /// would silently win.
+    #[must_use]
+    pub fn find_tab(&self, path: &Path) -> Option<usize> {
+        self.tabs
+            .iter()
+            .position(|tab| tab.editor.document().has_file() && same_path(tab.path(), path))
+    }
+
+    // --- opening ----------------------------------------------------------
+
+    /// Load a story into a new tab, or switch to it if it is already open.
+    ///
+    /// A tab that was already open is not reloaded: the document in memory may have unsaved
+    /// edits, and silently discarding them because the file appeared in the recent list would
+    /// be the same data loss the close guard exists to prevent.
     pub fn open_path(&mut self, path: PathBuf) {
-        if !self.may_discard() {
+        if let Some(index) = self.find_tab(&path) {
+            self.active = index;
+            self.set_status(format!("Switched to {}", path.display()), false);
             return;
         }
 
@@ -179,16 +165,11 @@ impl EditorApp {
 
         match Editor::open(&path) {
             Ok(editor) => {
-                self.selected = Some(editor.story().start.clone());
-                self.editor = Some(editor);
-                self.preview_steps.clear();
-                self.preview.reset();
                 // Art is looked up beside the story, not beside the process. Opening a
                 // project from a different directory must not silently lose its images.
-                self.assets = AssetPaths::beside(&path);
-                self.draft = Draft::beside(&path);
-                self.draft_due = None;
-                self.comment_warning_seen = false;
+                let tab = Tab::new(editor, AssetPaths::beside(&path));
+                self.tabs.push(tab);
+                self.active = self.tabs.len() - 1;
                 self.remember(&path);
                 self.set_status(format!("Opened {}", path.display()), false);
             }
@@ -200,6 +181,25 @@ impl EditorApp {
                 }
                 self.set_status(err.to_string(), true);
             }
+        }
+    }
+
+    /// Begin a new story in a new tab.
+    pub fn new_story(&mut self) {
+        let editor = Editor::new_story(Some("Untitled".to_owned()));
+        let tab = Tab::new(editor, AssetPaths::from_cwd());
+        self.tabs.push(tab);
+        self.active = self.tabs.len() - 1;
+        self.set_status("New story — save it to choose a location", false);
+    }
+
+    /// Add a path to the recent list and persist the change.
+    ///
+    /// A write failure does not deserve a dialog: the menu still works for this session,
+    /// and the next save tries the same directory again.
+    fn remember(&mut self, path: &Path) {
+        if self.recent.record(path) {
+            let _ = self.recent.save();
         }
     }
 
@@ -237,167 +237,147 @@ impl EditorApp {
         }
     }
 
-    /// Write the working copy, now that the debounce has expired.
+    // --- closing ----------------------------------------------------------
+
+    /// Close a tab, asking first if it has unsaved work.
+    pub fn close_tab(&mut self, index: usize) -> CloseOutcome {
+        if index >= self.tabs.len() {
+            return CloseOutcome::Closed;
+        }
+        if !self.confirm_discard(index) {
+            return CloseOutcome::Kept;
+        }
+        self.remove_tab(index);
+        CloseOutcome::Closed
+    }
+
+    /// Remove a tab and make the active index sensible again.
     ///
-    /// Called every frame and almost always does nothing. A failure is reported once and the
-    /// pending write is dropped: retrying a full disk sixty times a second helps nobody.
-    fn write_draft_if_due(&mut self) {
-        let Some(due) = self.draft_due else {
-            return;
-        };
-        if std::time::Instant::now() < due {
+    /// Split from `close_tab` so the index arithmetic can be tested without a dialog. That
+    /// arithmetic is where an off-by-one hides: the tab that was to the right slides into the
+    /// closed index, and an active index past the end has to land on the new last tab.
+    fn remove_tab(&mut self, index: usize) {
+        if index >= self.tabs.len() {
             return;
         }
-        self.draft_due = None;
+        let mut tab = self.tabs.remove(index);
+        tab.drop_draft();
 
-        // Taken out of `self` while writing: `Draft::write` borrows the draft, and `set_status`
-        // borrows the whole app.
-        let Some(draft) = self.draft.clone() else {
-            return;
-        };
-        let Some(editor) = self.editor.as_ref() else {
-            return;
-        };
-        if !editor.is_dirty() {
-            return;
-        }
-
-        match draft.write(editor.story()) {
-            Ok(()) => {}
-            Err(err) => self.set_status(format!("Could not write the recovery copy: {err}"), true),
+        // Keep the selection adjacent rather than jumping to the start: closing tab 3 of 5
+        // should land on what is now tab 3, which is the tab that was next to it.
+        if self.tabs.is_empty() {
+            self.active = 0;
+        } else if self.active > index {
+            self.active -= 1;
+        } else if self.active >= self.tabs.len() {
+            self.active = self.tabs.len() - 1;
         }
     }
 
-    /// Add a path to the recent list and persist the change.
-    ///
-    /// A write failure does not deserve a dialog: the menu still works for this session,
-    /// and the next save tries the same directory again.
-    fn remember(&mut self, path: &Path) {
-        if self.recent.record(path) {
-            let _ = self.recent.save();
-        }
-    }
-
-    /// Begin a new story.
-    pub fn new_story(&mut self) {
-        if !self.may_discard() {
-            return;
-        }
-
-        let editor = Editor::new_story(Some("Untitled".to_owned()));
-        self.selected = Some(editor.story().start.clone());
-        self.editor = Some(editor);
-        self.preview_steps.clear();
-        self.preview.reset();
-        self.assets = AssetPaths::from_cwd();
-        // No file, so nothing to sit a draft beside. The first save adopts one.
-        self.draft = None;
-        self.draft_due = None;
-        self.comment_warning_seen = false;
-        self.set_status("New story — save it to choose a location", false);
-    }
-
-    /// Whether unsaved work may be thrown away.
-    ///
-    /// A clean document never asks. A dirty one asks once, and a "no" stops whatever
-    /// was about to happen.
-    fn may_discard(&mut self) -> bool {
-        let Some(editor) = self.editor.as_ref() else {
+    /// Whether one tab may be thrown away, asking once if it has unsaved work.
+    fn confirm_discard(&mut self, index: usize) -> bool {
+        let Some(tab) = self.tabs.get(index) else {
             return true;
         };
-        if !editor.is_dirty() {
+        if !tab.is_dirty() {
             return true;
         }
-
-        let name = editor.path().file_name().map_or_else(
-            || "untitled".to_owned(),
-            |name| name.to_string_lossy().to_string(),
-        );
+        let name = tab.name();
 
         if dialogs::confirm_discard(&name) {
-            // The author has just said the work can go, so the recovery copy goes with it.
-            // Leaving it behind would offer it back on the next open, which is the opposite
-            // of what was just decided.
-            if let Some(draft) = &self.draft {
-                draft.discard();
+            // The author has just said the work can go, so this tab's recovery copy goes with
+            // it. A draft left behind would be offered back on the next open, which is the
+            // opposite of what was just decided.
+            if let Some(tab) = self.tabs.get_mut(index) {
+                tab.drop_draft();
             }
-            self.draft_due = None;
             true
         } else {
-            self.set_status("Kept the unsaved story open", false);
+            self.set_status(format!("Kept `{name}` open"), false);
             false
         }
     }
 
-    /// Select a node for editing.
+    /// Whether the window may close: every dirty tab is asked about, in order.
     ///
-    /// Resets the preview step when the selection actually changes: a step count belongs
-    /// to the position it was counted at, and carrying it into a different node shows a
-    /// frame that has nothing to do with what the author just clicked.
-    pub fn select(&mut self, id: NodeId) {
-        if self.selected.as_ref() != Some(&id) {
-            self.preview_steps.clear();
+    /// All of them, not just the active one. A window with three unsaved chapters and a
+    /// guard that only looked at the visible one would lose the other two without a word.
+    pub fn confirm_close_all(&mut self) -> bool {
+        let dirty: Vec<usize> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| tab.is_dirty())
+            .map(|(index, _)| index)
+            .collect();
+
+        for index in dirty {
+            if !self.confirm_discard(index) {
+                // Ask about the rest later: the author has already said "not this one", and
+                // that is enough to stop the close.
+                return false;
+            }
         }
-        self.selected = Some(id);
+        true
     }
+
+    // --- status -----------------------------------------------------------
 
     pub fn set_status(&mut self, message: impl Into<String>, is_error: bool) {
         self.status = message.into();
         self.status_is_error = is_error;
     }
 
+    // --- per-frame work ---------------------------------------------------
+
     /// Apply everything the UI asked for this frame.
+    ///
+    /// Every tab's queue, not only the active one: an operation produced in tab A and then
+    /// followed by a switch to tab B would otherwise be applied to B, naming a node that may
+    /// not exist there.
     fn flush(&mut self) {
         let actions = std::mem::take(&mut self.pending_actions);
         for action in actions {
             self.handle(action);
         }
 
-        let ops = std::mem::take(&mut self.pending);
-        if ops.is_empty() {
-            return;
-        }
-
-        // Scheduling the draft before the borrow of `editor` below: the write itself happens
-        // in `write_draft_if_due`, once the debounce has expired.
-        if self.draft.is_some() {
-            self.draft_due = Some(std::time::Instant::now() + std::time::Duration::from_secs(2));
-        }
-
-        let Some(editor) = self.editor.as_mut() else {
-            return;
-        };
-
-        // Collected rather than reported inline: `set_status` borrows all of `self`,
-        // which would conflict with the `editor` borrow held by the loop.
         let mut last_status: Option<(String, bool)> = None;
-        let mut selection_after: Option<Option<NodeId>> = None;
 
-        for op in ops {
-            let label = op.label();
-            match editor.apply(&op) {
-                Ok(()) => {
-                    last_status = Some((label, false));
-                    // Structural edits can invalidate the selection.
-                    if op.changes_structure()
-                        && let Some(selected) = &self.selected
-                        && !editor.story().nodes.contains_key(selected)
-                    {
-                        selection_after = Some(editor.story().nodes.keys().next().cloned());
+        for tab in &mut self.tabs {
+            if tab.pending.is_empty() {
+                continue;
+            }
+            let ops = std::mem::take(&mut tab.pending);
+            let mut selection_after: Option<Option<NodeId>> = None;
+
+            for op in ops {
+                let label = op.label();
+                match tab.editor.apply(&op) {
+                    Ok(()) => {
+                        last_status = Some((label, false));
+                        // Structural edits can invalidate the selection.
+                        if op.changes_structure()
+                            && let Some(selected) = &tab.selected
+                            && !tab.story().nodes.contains_key(selected)
+                        {
+                            selection_after = Some(tab.story().nodes.keys().next().cloned());
+                        }
+                    }
+                    Err(err) => {
+                        last_status = Some((err.to_string(), true));
+                        // Stop at the first failure: later operations were written assuming
+                        // this one succeeded.
+                        break;
                     }
                 }
-                Err(err) => {
-                    last_status = Some((err.to_string(), true));
-                    // Stop at the first failure: later operations were written assuming
-                    // this one succeeded.
-                    break;
-                }
             }
+
+            if let Some(selection) = selection_after {
+                tab.selected = selection;
+            }
+            tab.plan_draft();
         }
 
-        if let Some(selection) = selection_after {
-            self.selected = selection;
-        }
         if let Some((message, is_error)) = last_status {
             self.set_status(message, is_error);
         }
@@ -406,8 +386,6 @@ impl EditorApp {
     fn handle(&mut self, action: UiAction) {
         match action {
             UiAction::Open => {
-                // The dialog runs before `may_discard` would, so a cancelled dialog does
-                // not trigger an unsaved-changes prompt.
                 if let Some(path) = dialogs::open_story() {
                     self.open_path(path);
                 }
@@ -415,7 +393,10 @@ impl EditorApp {
             UiAction::OpenAt(path) => self.open_path(path),
             UiAction::New => self.new_story(),
             UiAction::Save => self.save(),
-            UiAction::SaveAs => self.save_as(),
+            UiAction::SaveAs(index) => self.save_as(index),
+            UiAction::Close(index) => {
+                self.close_tab(index);
+            }
             UiAction::ClearRecent => {
                 if self.recent.clear() {
                     let _ = self.recent.save();
@@ -425,102 +406,94 @@ impl EditorApp {
         }
     }
 
-    /// Save, asking for a path when the document has never had one.
+    // --- saving -----------------------------------------------------------
+
+    /// Save the active tab, asking for a path when the document has never had one.
     pub fn save(&mut self) {
-        let Some(editor) = self.editor.as_ref() else {
+        let Some(index) = self.tabs.get(self.active).map(|_| self.active) else {
             return;
         };
-        let path = editor.path().to_path_buf();
-        let has_file = editor.document().has_file();
-
-        if !has_file {
-            self.save_as();
+        let Some(tab) = self.tabs.get(index) else {
+            return;
+        };
+        if !tab.editor.document().has_file() {
+            self.pending_actions.push(UiAction::SaveAs(index));
             return;
         }
+
+        let path = tab.path().to_path_buf();
+        let name = tab.name();
 
         // Before the first overwrite of this document: saving rewrites the file from the data
         // model, and comments are not part of one.
-        if !self.comment_warning_seen {
-            let has_comments = self
-                .editor
-                .as_ref()
-                .is_some_and(|editor| editor.document().source_has_comments());
-            if has_comments {
-                let name = path.file_name().map_or_else(
-                    || path.display().to_string(),
-                    |name| name.to_string_lossy().into_owned(),
-                );
-                if !dialogs::confirm_rewrite(&name) {
-                    self.set_status("Save cancelled; the file is unchanged", false);
-                    return;
-                }
-                self.comment_warning_seen = true;
-            }
+        let needs_warning =
+            !tab.comment_warning_seen && tab.editor.document().source_has_comments();
+        if needs_warning && !dialogs::confirm_rewrite(&name) {
+            self.set_status("Save cancelled; the file is unchanged", false);
+            return;
+        }
+        if needs_warning && let Some(tab) = self.tabs.get_mut(index) {
+            tab.comment_warning_seen = true;
         }
 
-        let Some(editor) = self.editor.as_mut() else {
+        let Some(tab) = self.tabs.get_mut(index) else {
             return;
         };
-        match editor.save() {
+        match tab.editor.save() {
             Ok(()) => {
                 // The file is now what the document says, so the recovery copy is stale by
                 // definition. Leaving it would offer the author work they already saved.
-                self.drop_draft();
+                tab.drop_draft();
                 self.set_status(format!("Saved {}", path.display()), false);
             }
             Err(err) => self.set_status(err.to_string(), true),
         }
     }
 
-    /// Remove the working copy and cancel any pending write.
-    fn drop_draft(&mut self) {
-        if let Some(draft) = &self.draft {
-            draft.discard();
-        }
-        self.draft_due = None;
-    }
-
-    fn save_as(&mut self) {
-        let Some(editor) = self.editor.as_ref() else {
+    fn save_as(&mut self, index: usize) {
+        let Some(tab) = self.tabs.get(index) else {
             return;
         };
-        let suggested = editor.path().to_path_buf();
+        let suggested = tab.path().to_path_buf();
 
         let Some(path) = dialogs::save_story_as(Some(&suggested)) else {
             return;
         };
 
-        let Some(editor) = self.editor.as_mut() else {
+        let Some(tab) = self.tabs.get_mut(index) else {
             return;
         };
-        match editor.save_as(&path) {
+        match tab.editor.save_as(&path) {
             Ok(()) => {
-                // The assets move with the story: saving a chapter into a project
-                // directory should look for that project's art.
-                self.assets = AssetPaths::beside(&path);
-                // The document has a new home, and so does its working copy — and the old
-                // draft, if any, describes a file that is no longer this one.
-                self.drop_draft();
-                self.draft = Draft::beside(&path);
+                tab.adopt(&path);
+                let name = path.display().to_string();
+                // The art may live somewhere else now, so the cached textures and frame are
+                // both stale. `reset` drops those and keeps the renderer — replacing the
+                // whole `Preview` would discard the GPU device it borrows from eframe.
+                self.preview.reset();
                 self.remember(&path);
-                self.set_status(format!("Saved {}", path.display()), false);
+                self.set_status(format!("Saved {name}"), false);
             }
             Err(err) => self.set_status(err.to_string(), true),
         }
     }
 
+    // --- undo -------------------------------------------------------------
+
     fn undo(&mut self) {
-        if let Some(editor) = self.editor.as_mut()
-            && let Some(label) = editor.undo()
+        if let Some(tab) = self.active_tab_mut()
+            && let Some(label) = tab.editor.undo()
         {
+            tab.plan_draft();
             self.set_status(format!("undo: {label}"), false);
         }
     }
 
     fn redo(&mut self) {
-        if let Some(editor) = self.editor.as_mut()
-            && let Some(label) = editor.redo()
+        if let Some(tab) = self.active_tab_mut()
+            && let Some(label) = tab.editor.redo()
         {
+            tab.plan_draft();
             self.set_status(format!("redo: {label}"), false);
         }
     }
@@ -535,25 +508,86 @@ impl EditorApp {
     pub fn redo_pending(&mut self) {
         self.redo();
     }
+
+    // --- the frame --------------------------------------------------------
+
+    /// Write every tab's recovery copy whose debounce has expired.
+    ///
+    /// Every tab, not just the visible one: a document sitting in a background tab has the
+    /// same claim to being recovered as the one on screen, and the whole point of a draft is
+    /// that the author was not looking at the window when the process died.
+    fn write_drafts(&mut self) {
+        let now = std::time::Instant::now();
+        let mut failure: Option<String> = None;
+        for tab in &mut self.tabs {
+            if let Some(err) = tab.write_draft_if_due(now) {
+                failure = Some(err);
+            }
+        }
+        if let Some(err) = failure {
+            self.set_status(format!("Could not write the recovery copy: {err}"), true);
+        }
+    }
+
+    /// The soonest pending draft write, so the frame loop can schedule a repaint.
+    ///
+    /// egui only redraws on input by default, and a debounced write has to happen while the
+    /// author is sitting still — exactly when nothing is repainting.
+    fn next_draft_wait(&self) -> Option<std::time::Duration> {
+        let now = std::time::Instant::now();
+        self.tabs.iter().filter_map(|tab| tab.draft_wait(now)).min()
+    }
+}
+
+/// Whether two paths name the same file, as far as a person means.
+///
+/// Not `canonicalize`: the file may not exist yet (an untitled save), and on Windows
+/// canonicalising adds a `\\?\` prefix that makes the comparison fail for the very case it is
+/// supposed to catch. Case-insensitive on Windows, because `Story.RON` and `story.ron` are one
+/// file there.
+fn same_path(a: &Path, b: &Path) -> bool {
+    if a == b {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        a.to_string_lossy().replace('/', "\\").to_lowercase()
+            == b.to_string_lossy().replace('/', "\\").to_lowercase()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
 }
 
 impl eframe::App for EditorApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        // Shortcuts first: they must work regardless of which panel has focus.
+        // Shortcuts first: they must work regardless of which panel has focus, and they act
+        // on the active tab — the one the author is looking at.
+        //
+        // Except while a text field has the keyboard. `Ctrl+Z` in a field is the field's undo,
+        // and `Ctrl+W` is delete-word in enough editors that closing a tab under the author's
+        // hands would be a nasty surprise. File verbs (save, open, new) are safe either way:
+        // no text field gives them a meaning.
+        //
+        // `text_edit_focused` rather than "anything has focus": with a button focused, undo is
+        // still the document's, and taking it away would make the shortcut feel broken.
+        let editing_text = ui.ctx().text_edit_focused();
         let shortcuts = ui.ctx().input(|input| {
             let command = input.modifiers.command;
             let shift = input.modifiers.shift;
             (
-                command && !shift && input.key_pressed(egui::Key::Z),
-                command && !shift && input.key_pressed(egui::Key::Y),
+                command && !shift && !editing_text && input.key_pressed(egui::Key::Z),
+                command && !shift && !editing_text && input.key_pressed(egui::Key::Y),
                 command && shift && input.key_pressed(egui::Key::S),
                 command && !shift && input.key_pressed(egui::Key::S),
                 command && input.key_pressed(egui::Key::O),
-                command && input.key_pressed(egui::Key::N),
+                command && !shift && input.key_pressed(egui::Key::N),
                 input.key_pressed(egui::Key::F1),
+                command && !shift && !editing_text && input.key_pressed(egui::Key::W),
             )
         });
-        let (undo, redo, save_as, save, open, new, help) = shortcuts;
+        let (undo, redo, save_as, save, open, new, help, close) = shortcuts;
 
         if undo {
             self.undo();
@@ -562,7 +596,7 @@ impl eframe::App for EditorApp {
             self.redo();
         }
         if save_as {
-            self.pending_actions.push(UiAction::SaveAs);
+            self.pending_actions.push(UiAction::SaveAs(self.active));
         }
         if save {
             self.pending_actions.push(UiAction::Save);
@@ -576,10 +610,13 @@ impl eframe::App for EditorApp {
         if help {
             self.show_help = !self.show_help;
         }
+        if close {
+            self.pending_actions.push(UiAction::Close(self.active));
+        }
 
         // Close guard. Runs before layout so a cancel takes effect this frame.
         if ui.ctx().input(|input| input.viewport().close_requested()) && !self.close_confirmed {
-            if self.may_discard() {
+            if self.confirm_close_all() {
                 self.close_confirmed = true;
             } else {
                 // Refuse the close, and undo the viewport's own decision so the window
@@ -590,6 +627,7 @@ impl eframe::App for EditorApp {
         }
 
         panels::top_bar(self, ui);
+        panels::tab_bar(self, ui);
         panels::status_bar(self, ui);
         panels::node_list(self, ui);
         panels::inspector(self, ui);
@@ -600,12 +638,131 @@ impl eframe::App for EditorApp {
         // not borrowed while it is being changed.
         self.flush();
 
-        // The working copy. egui only redraws on input by default, and a debounced write has
-        // to happen while the author is sitting still — exactly when nothing is repainting.
-        if let Some(due) = self.draft_due {
-            let wait = due.saturating_duration_since(std::time::Instant::now());
+        // The working copies. Scheduled before the write so a frame that only waits still
+        // repaints when the deadline arrives.
+        if let Some(wait) = self.next_draft_wait() {
             ui.ctx().request_repaint_after(wait);
-            self.write_draft_if_due();
+            self.write_drafts();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An app with `count` untitled tabs and no GPU, which is all the index arithmetic needs.
+    fn app_with(count: usize) -> EditorApp {
+        let mut app = EditorApp {
+            tabs: Vec::new(),
+            active: 0,
+            preview: Preview::new(),
+            status: String::new(),
+            status_is_error: false,
+            pending_actions: Vec::new(),
+            close_confirmed: false,
+            recent: RecentFiles::default(),
+            show_help: false,
+        };
+        for _ in 0..count {
+            let editor = Editor::new_story(None);
+            app.tabs.push(Tab::new(editor, AssetPaths::from_cwd()));
+        }
+        app
+    }
+
+    #[test]
+    fn closing_a_tab_to_the_left_keeps_the_same_document_active() {
+        let mut app = app_with(3);
+        app.active = 2;
+
+        app.remove_tab(0);
+
+        // The document that was at index 2 is now at index 1, and it is still the one the
+        // author is looking at — not the tab that took index 2.
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.active, 1);
+    }
+
+    #[test]
+    fn closing_the_active_tab_lands_on_the_one_that_moved_into_its_place() {
+        let mut app = app_with(3);
+        app.active = 1;
+
+        app.remove_tab(1);
+
+        assert_eq!(app.tabs.len(), 2);
+        assert_eq!(app.active, 1, "the tab that slid left takes the focus");
+    }
+
+    #[test]
+    fn closing_the_last_tab_pulls_the_selection_back() {
+        let mut app = app_with(2);
+        app.active = 1;
+
+        app.remove_tab(1);
+
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.active, 0, "there is no index 1 left to be active");
+    }
+
+    #[test]
+    fn closing_the_only_tab_leaves_an_empty_window() {
+        let mut app = app_with(1);
+
+        app.remove_tab(0);
+
+        assert!(app.tabs.is_empty());
+        assert_eq!(app.active, 0, "an empty window still has a usable index");
+        assert!(app.active_tab_mut().is_none());
+    }
+
+    #[test]
+    fn closing_a_tab_that_is_not_there_does_nothing() {
+        let mut app = app_with(1);
+        app.remove_tab(7);
+        assert_eq!(app.tabs.len(), 1);
+        assert_eq!(app.active, 0);
+    }
+
+    #[test]
+    fn opening_a_path_that_is_already_open_switches_instead_of_duplicating() {
+        // Two tabs on one file would each hold a copy, and the last save would silently win.
+        let dir = std::env::temp_dir().join(format!("rustory-app-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        let path = dir.join("story.ron");
+
+        let mut document =
+            rustory_edit::Document::new(Editor::new_story(None).story().clone(), &path);
+        document.save_as(&path).expect("writes");
+
+        let mut app = app_with(0);
+        app.open_path(path.clone());
+        assert_eq!(app.tabs.len(), 1);
+        app.open_path(path.clone());
+        assert_eq!(app.tabs.len(), 1, "the same file must not open twice");
+        assert_eq!(app.active, 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn same_path_ignores_case_and_separators_on_windows() {
+        assert!(same_path(
+            Path::new("stories/a.ron"),
+            Path::new("stories/a.ron")
+        ));
+        #[cfg(windows)]
+        {
+            assert!(same_path(
+                Path::new("stories/a.ron"),
+                Path::new("stories\\A.RON")
+            ));
+            assert!(!same_path(
+                Path::new("stories/a.ron"),
+                Path::new("stories/b.ron")
+            ));
         }
     }
 }

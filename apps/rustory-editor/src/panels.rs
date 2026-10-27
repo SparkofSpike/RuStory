@@ -13,6 +13,7 @@ use rustory_edit::prelude::*;
 
 use crate::app::{EditorApp, UiAction};
 use crate::preview::{PreviewReport, Step};
+use crate::tab::Tab;
 
 /// The config as text for the box, or an empty string when there is none.
 ///
@@ -39,11 +40,11 @@ pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
             ui.heading("RuStory");
             ui.separator();
 
-            let has_doc = app.editor.is_some();
+            let has_doc = !app.tabs.is_empty();
 
             if ui
                 .button("New")
-                .on_hover_text("New story (Ctrl+N)")
+                .on_hover_text("New story in a new tab (Ctrl+N)")
                 .clicked()
             {
                 app.pending_actions.push(UiAction::New);
@@ -100,21 +101,20 @@ pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
                     .on_hover_text("Save to a new file (Ctrl+Shift+S)")
                     .clicked()
                 {
-                    app.pending_actions.push(UiAction::SaveAs);
+                    app.pending_actions.push(UiAction::SaveAs(app.active));
                 }
             });
 
             ui.separator();
 
-            let (can_undo, can_redo, undo_label, redo_label) = app
-                .editor
-                .as_ref()
-                .map(|editor| {
+            let active = app.tabs.get(app.active);
+            let (can_undo, can_redo, undo_label, redo_label) = active
+                .map(|tab| {
                     (
-                        editor.can_undo(),
-                        editor.can_redo(),
-                        editor.undo_label().unwrap_or("").to_owned(),
-                        editor.redo_label().unwrap_or("").to_owned(),
+                        tab.editor.can_undo(),
+                        tab.editor.can_redo(),
+                        tab.editor.undo_label().unwrap_or("").to_owned(),
+                        tab.editor.redo_label().unwrap_or("").to_owned(),
                     )
                 })
                 .unwrap_or((false, false, String::new(), String::new()));
@@ -152,28 +152,16 @@ pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
                 app.show_help = !app.show_help;
             }
 
-            ui.separator();
-
-            if let Some(editor) = &app.editor {
-                let name = if editor.document().has_file() {
-                    editor.path().file_name().map_or_else(
-                        || "untitled".to_owned(),
-                        |name| name.to_string_lossy().to_string(),
-                    )
-                } else {
-                    // A story with no file yet must not look like one that has a home.
-                    "untitled".to_owned()
-                };
-                let dirty = if editor.is_dirty() { " •" } else { "" };
-                ui.label(format!("{name}{dirty}"));
-            }
-
-            // Preview position, right-aligned so it does not shift with the file name.
+            // Preview position, right-aligned so it does not shift with the toolbar.
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let position = app.preview_steps.len();
+                let Some(tab) = app.tabs.get_mut(app.active) else {
+                    ui.label(egui::RichText::new("No document open").weak());
+                    return;
+                };
+                let position = tab.preview_steps.len();
 
                 if ui.button(">>").on_hover_text("Step forward").clicked() {
-                    app.preview_steps.push(Step::Click);
+                    tab.preview_steps.push(Step::Click);
                 }
                 // The slider rewinds along the path already taken; forward is the button,
                 // because how long the story is only becomes known by playing it.
@@ -182,14 +170,70 @@ pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
                     .add(egui::Slider::new(&mut target, 0..=position.max(1)).text("step"))
                     .changed()
                 {
-                    app.preview_steps.truncate(target);
+                    tab.preview_steps.truncate(target);
                 }
                 if ui.button("<<").on_hover_text("Reset preview").clicked() {
-                    app.preview_steps.clear();
+                    tab.preview_steps.clear();
                 }
                 ui.label("Preview:");
             });
         });
+    });
+}
+
+/// The tab strip.
+///
+/// Between the toolbar and the panels rather than inside either: it is about the window, and
+/// putting it in a side panel would make it look like a property of the story.
+pub fn tab_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
+    if app.tabs.is_empty() {
+        return;
+    }
+
+    egui::Panel::top("tabs").show(ui, |ui| {
+        egui::ScrollArea::horizontal()
+            .id_salt("tab-strip")
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    // Collected rather than acted on inside the loop: closing a tab while
+                    // iterating over the tabs is the classic way to skip one.
+                    let mut activate: Option<usize> = None;
+                    let mut close: Option<usize> = None;
+
+                    for (index, tab) in app.tabs.iter().enumerate() {
+                        let selected = index == app.active;
+                        let dirty = if tab.is_dirty() { " •" } else { "" };
+                        let label = format!("{}{dirty}", tab.name());
+
+                        // The close affordance sits inside the tab, the way a browser does
+                        // it: a separate column of buttons would waste a row for every tab.
+                        ui.horizontal(|ui| {
+                            if ui
+                                .selectable_label(selected, label)
+                                .on_hover_text(tab.path().display().to_string())
+                                .clicked()
+                            {
+                                activate = Some(index);
+                            }
+                            if ui
+                                .small_button("×")
+                                .on_hover_text("Close (Ctrl+W)")
+                                .clicked()
+                            {
+                                close = Some(index);
+                            }
+                        });
+                    }
+
+                    if let Some(index) = activate {
+                        app.active = index;
+                        app.set_status(format!("Editing {}", app.tabs[index].name()), false);
+                    }
+                    if let Some(index) = close {
+                        app.pending_actions.push(UiAction::Close(index));
+                    }
+                });
+            });
     });
 }
 
@@ -206,17 +250,22 @@ pub fn status_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let problems = app
-                    .editor
-                    .as_ref()
-                    .map(|editor| editor.problems().len())
-                    .unwrap_or(0);
-                if problems > 0 {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(240, 180, 100),
-                        format!("{problems} problem(s)"),
-                    );
-                } else if app.editor.is_some() {
-                    ui.colored_label(egui::Color32::from_rgb(140, 200, 140), "valid");
+                    .tabs
+                    .get(app.active)
+                    .map(|tab| tab.editor.problems().len());
+                match problems {
+                    Some(0) => {
+                        ui.colored_label(egui::Color32::from_rgb(140, 200, 140), "valid");
+                    }
+                    Some(count) => {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(240, 180, 100),
+                            format!("{count} problem(s)"),
+                        );
+                    }
+                    // No document: say nothing rather than "valid", which would be a claim
+                    // about a story that is not open.
+                    None => {}
                 }
             });
         });
@@ -232,8 +281,16 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
             ui.heading("Nodes");
             ui.separator();
 
-            let Some(editor) = app.editor.as_ref() else {
+            let active = app.active;
+            let Some(tab) = app.tabs.get_mut(active) else {
                 ui.label("No story open.");
+                ui.label(
+                    egui::RichText::new(
+                        "New or Open to start; several stories can be open at once.",
+                    )
+                    .small()
+                    .weak(),
+                );
                 return;
             };
 
@@ -241,18 +298,18 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
             // scanning is what a filter is for. Typing here does not edit the document,
             // so it takes no undo step and cannot fail.
             ui.add(
-                egui::TextEdit::singleline(&mut app.node_filter)
+                egui::TextEdit::singleline(&mut tab.node_filter)
                     .hint_text("filter nodes")
                     .desired_width(f32::INFINITY),
             );
 
-            let story = editor.story();
+            let story = tab.editor.story();
             let start = story.start.clone();
             let total = story.nodes.len();
             let ids: Vec<NodeId> = story
                 .nodes
                 .keys()
-                .filter(|id| matches_filter(id, &app.node_filter))
+                .filter(|id| matches_filter(id, &tab.node_filter))
                 .cloned()
                 .collect();
 
@@ -263,12 +320,12 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
                         .weak(),
                 );
             }
-            if ids.is_empty() && !app.node_filter.trim().is_empty() {
+            if ids.is_empty() && !tab.node_filter.trim().is_empty() {
                 ui.label(egui::RichText::new("No node matches.").weak());
             }
 
-            // Collected rather than applied inside the scroll area: `select` is a method
-            // on the app, which borrows all of it, and the closure still holds `editor`.
+            // Collected rather than applied inside the scroll area: setting the selection
+            // resets the preview, and the closure still holds `story`.
             let mut select: Option<NodeId> = None;
             egui::ScrollArea::vertical()
                 .max_height(ui.available_height() - 130.0)
@@ -276,7 +333,7 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
                     for id in &ids {
                         let node = &story.nodes[id];
                         let is_start = id == &start;
-                        let selected = app.selected.as_ref() == Some(id);
+                        let selected = tab.selected.as_ref() == Some(id);
 
                         let label = if is_start {
                             format!("▶ {id}  ({})", node.beats.len())
@@ -290,7 +347,7 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
                             .clicked()
                         {
                             select = Some(id.clone());
-                            app.rename_buffer = id.to_string();
+                            tab.rename_buffer = id.to_string();
                         }
                     }
                 });
@@ -300,62 +357,65 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
             // Create
             ui.horizontal(|ui| {
                 ui.add(
-                    egui::TextEdit::singleline(&mut app.new_node_id)
+                    egui::TextEdit::singleline(&mut tab.new_node_id)
                         .hint_text("new node id")
                         .desired_width(140.0),
                 );
-                let can_create = !app.new_node_id.trim().is_empty();
+                let can_create = !tab.new_node_id.trim().is_empty();
                 if ui.add_enabled(can_create, egui::Button::new("+")).clicked() {
-                    let id = NodeId::from(app.new_node_id.trim());
-                    app.pending.push(EditOp::CreateNode { id, at: None });
-                    app.new_node_id.clear();
+                    let id = NodeId::from(tab.new_node_id.trim());
+                    tab.pending.push(EditOp::CreateNode { id, at: None });
+                    tab.new_node_id.clear();
                 }
             });
 
             // Rename / duplicate / delete the selection
-            if let Some(selected) = app.selected.clone() {
+            if let Some(selected) = tab.selected.clone() {
                 ui.horizontal(|ui| {
                     if ui
-                        .add_enabled(!is_start(&selected, editor), egui::Button::new("Delete"))
+                        .add_enabled(
+                            !is_start(&selected, &tab.editor),
+                            egui::Button::new("Delete"),
+                        )
                         .on_hover_text("Delete the selected node")
                         .clicked()
                     {
-                        app.pending.push(EditOp::DeleteNode {
+                        tab.pending.push(EditOp::DeleteNode {
                             id: selected.clone(),
                         });
                     }
 
                     if ui.button("Duplicate").clicked() {
                         let as_id = NodeId::from(format!("{}-copy", selected));
-                        app.pending.push(EditOp::DuplicateNode {
+                        tab.pending.push(EditOp::DuplicateNode {
                             id: selected.clone(),
                             as_id,
                         });
                     }
 
                     if ui.button("Make start").clicked() {
-                        app.pending.push(EditOp::SetStartNode {
+                        tab.pending.push(EditOp::SetStartNode {
                             node: selected.clone(),
                         });
                     }
                 });
 
                 ui.horizontal(|ui| {
-                    if app.rename_buffer.is_empty() {
-                        app.rename_buffer = selected.to_string();
+                    if tab.rename_buffer.is_empty() {
+                        tab.rename_buffer = selected.to_string();
                     }
                     ui.add(
-                        egui::TextEdit::singleline(&mut app.rename_buffer)
+                        egui::TextEdit::singleline(&mut tab.rename_buffer)
                             .hint_text("rename to")
                             .desired_width(140.0),
                     );
-                    let target = app.rename_buffer.trim().to_owned();
+                    let target = tab.rename_buffer.trim().to_owned();
                     let can_rename = !target.is_empty() && target != selected.to_string();
                     if ui
                         .add_enabled(can_rename, egui::Button::new("Rename"))
                         .clicked()
                     {
-                        app.pending.push(EditOp::RenameNode {
+                        tab.pending.push(EditOp::RenameNode {
                             from: selected.clone(),
                             to: NodeId::from(target),
                         });
@@ -363,11 +423,10 @@ pub fn node_list(app: &mut EditorApp, ui: &mut egui::Ui) {
                 });
             }
 
-            // Applied last: `select` borrows the whole app, and `editor` is still in use
-            // above. The early return that used to sit here is gone for the same reason
-            // — skipping it must not skip the click the user just made.
+            // Applied last: the selection lives on the same tab the loop above borrowed from,
+            // so it is written through two fields rather than a method that would take both.
             if let Some(id) = select {
-                app.select(id);
+                Tab::plan_selection(&mut tab.selected, &mut tab.preview_steps, id);
             }
         });
 }
@@ -499,19 +558,26 @@ fn story_settings(pending: &mut Vec<EditOp>, show: &mut bool, story: &Story, ui:
 /// Beat list and exit editor for the selected node.
 pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
     egui::CentralPanel::default().show(ui, |ui| {
-        let Some(editor) = app.editor.as_ref() else {
+        let active = app.active;
+        let Some(tab) = app.tabs.get_mut(active) else {
             ui.heading("RuStory Editor");
             ui.label("Open a story to start editing.");
-            ui.label("Usage: rustory-editor <story.ron>");
+            ui.label(
+                egui::RichText::new(
+                    "New or Open in the toolbar; several stories can be open at once.",
+                )
+                .small()
+                .weak(),
+            );
             return;
         };
 
-        let Some(selected) = app.selected.clone() else {
+        let Some(selected) = tab.selected_node() else {
             ui.label("Select a node.");
             return;
         };
 
-        let Some(node) = editor.story().nodes.get(&selected) else {
+        let Some(node) = tab.editor.story().nodes.get(&selected) else {
             ui.label("That node no longer exists.");
             return;
         };
@@ -519,15 +585,18 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
         ui.heading(format!("{selected}"));
         ui.separator();
 
-        // Collected rather than applied inside the scroll area: `select` is a method on
-        // the app, which borrows all of it, and the closure still holds `editor`.
+        // Collected rather than applied inside the scroll area: changing the selection resets
+        // the preview, and the closure still holds the story.
         let mut select: Option<NodeId> = None;
+        // Same idea for a message that has to reach the status line: `set_status` takes the
+        // whole app, which this closure has already borrowed the tab from.
+        let mut status_after: Option<(String, bool)> = None;
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Who points at this node. Deletion refuses while anything does, and the
             // author is better served knowing that before the attempt than by reading it
             // in an error afterwards.
-            let referrers = editor.referrers(&selected);
+            let referrers = tab.editor.referrers(&selected);
             if !referrers.is_empty() {
                 ui.horizontal_wrapped(|ui| {
                     ui.label("Referenced by:");
@@ -561,9 +630,9 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
             // that greps for each `EditOp` variant in the editor source is what caught it;
             // doing that by eye would not have.
             story_settings(
-                &mut app.pending,
-                &mut app.show_story_settings,
-                editor.story(),
+                &mut tab.pending,
+                &mut tab.show_story_settings,
+                tab.editor.story(),
                 ui,
             );
 
@@ -586,7 +655,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                             .on_hover_text("Insert a copy after this beat")
                             .clicked()
                         {
-                            app.pending.push(EditOp::InsertBeat {
+                            tab.pending.push(EditOp::InsertBeat {
                                 node: selected.clone(),
                                 index: index + 1,
                                 beat: beat.clone(),
@@ -595,7 +664,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
 
                         // Move up / down / delete
                         if ui.add_enabled(index > 0, egui::Button::new("Up")).clicked() {
-                            app.pending.push(EditOp::MoveBeat {
+                            tab.pending.push(EditOp::MoveBeat {
                                 node: selected.clone(),
                                 from: index,
                                 to: index - 1,
@@ -605,14 +674,14 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                             .add_enabled(index + 1 < beat_count, egui::Button::new("Dn"))
                             .clicked()
                         {
-                            app.pending.push(EditOp::MoveBeat {
+                            tab.pending.push(EditOp::MoveBeat {
                                 node: selected.clone(),
                                 from: index,
                                 to: index + 2,
                             });
                         }
                         if ui.button("Del").on_hover_text("Delete beat").clicked() {
-                            app.pending.push(EditOp::DeleteBeat {
+                            tab.pending.push(EditOp::DeleteBeat {
                                 node: selected.clone(),
                                 index,
                             });
@@ -621,7 +690,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                         ui.separator();
                         let mut edited = beat.clone();
                         if beat_form(ui, &mut edited, index) && edited != *beat {
-                            app.pending.push(EditOp::UpdateBeat {
+                            tab.pending.push(EditOp::UpdateBeat {
                                 node: selected.clone(),
                                 index,
                                 beat: edited,
@@ -633,7 +702,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
 
             ui.horizontal(|ui| {
                 if ui.button("+ Say").clicked() {
-                    app.pending.push(EditOp::InsertBeat {
+                    tab.pending.push(EditOp::InsertBeat {
                         node: selected.clone(),
                         index: beat_count,
                         beat: Beat::Say {
@@ -643,7 +712,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                     });
                 }
                 if ui.button("+ Show actor").clicked() {
-                    app.pending.push(EditOp::InsertBeat {
+                    tab.pending.push(EditOp::InsertBeat {
                         node: selected.clone(),
                         index: beat_count,
                         beat: Beat::ShowActor {
@@ -654,7 +723,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                     });
                 }
                 if ui.button("+ Hide actor").clicked() {
-                    app.pending.push(EditOp::InsertBeat {
+                    tab.pending.push(EditOp::InsertBeat {
                         node: selected.clone(),
                         index: beat_count,
                         beat: Beat::HideActor {
@@ -663,14 +732,14 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                     });
                 }
                 if ui.button("+ Background").clicked() {
-                    app.pending.push(EditOp::InsertBeat {
+                    tab.pending.push(EditOp::InsertBeat {
                         node: selected.clone(),
                         index: beat_count,
                         beat: Beat::SetBackground { image: None },
                     });
                 }
                 if ui.button("+ Music").clicked() {
-                    app.pending.push(EditOp::InsertBeat {
+                    tab.pending.push(EditOp::InsertBeat {
                         node: selected.clone(),
                         index: beat_count,
                         beat: Beat::Music {
@@ -680,7 +749,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                     });
                 }
                 if ui.button("+ Sound").clicked() {
-                    app.pending.push(EditOp::InsertBeat {
+                    tab.pending.push(EditOp::InsertBeat {
                         node: selected.clone(),
                         index: beat_count,
                         beat: Beat::Sound {
@@ -702,9 +771,9 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                 // session even when the story is fine. `jump` collects the request;
                 // acting on it here would fight the read borrow of `node`.
                 let mut jump = None;
-                exit_form(ui, &mut exit, &mut changed, editor, &mut jump);
+                exit_form(ui, &mut exit, &mut changed, &tab.editor, &mut jump);
                 if changed && exit != node.exit {
-                    app.pending.push(EditOp::SetExit {
+                    tab.pending.push(EditOp::SetExit {
                         node: selected.clone(),
                         exit,
                     });
@@ -727,7 +796,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                             // Order is what the player reads, so it is part of the writing.
                             let total = choices.len();
                             if ui.add_enabled(index > 0, egui::Button::new("Up")).clicked() {
-                                app.pending.push(EditOp::MoveChoice {
+                                tab.pending.push(EditOp::MoveChoice {
                                     node: selected.clone(),
                                     from: index,
                                     to: index - 1,
@@ -737,7 +806,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                                 .add_enabled(index + 1 < total, egui::Button::new("Dn"))
                                 .clicked()
                             {
-                                app.pending.push(EditOp::MoveChoice {
+                                tab.pending.push(EditOp::MoveChoice {
                                     node: selected.clone(),
                                     from: index,
                                     to: index + 2,
@@ -750,7 +819,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                                 .lost_focus()
                                 && label != choice.label
                             {
-                                app.pending.push(EditOp::UpdateChoice {
+                                tab.pending.push(EditOp::UpdateChoice {
                                     node: selected.clone(),
                                     index,
                                     label: Some(label),
@@ -761,7 +830,8 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                             ui.label("to");
 
                             let mut target = choice.to.to_string();
-                            let ids: Vec<String> = editor
+                            let ids: Vec<String> = tab
+                                .editor
                                 .story()
                                 .nodes
                                 .keys()
@@ -776,7 +846,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                                             .clicked()
                                             && target != choice.to.to_string()
                                         {
-                                            app.pending.push(EditOp::UpdateChoice {
+                                            tab.pending.push(EditOp::UpdateChoice {
                                                 node: selected.clone(),
                                                 index,
                                                 label: None,
@@ -802,7 +872,7 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                                 .on_hover_text("Delete choice")
                                 .clicked()
                             {
-                                app.pending.push(EditOp::DeleteChoice {
+                                tab.pending.push(EditOp::DeleteChoice {
                                     node: selected.clone(),
                                     index,
                                 });
@@ -812,8 +882,8 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                 }
 
                 if ui.button("+ Choice").clicked() {
-                    let target = editor.story().start.clone();
-                    app.pending.push(EditOp::AddChoice {
+                    let target = tab.editor.story().start.clone();
+                    tab.pending.push(EditOp::AddChoice {
                         node: selected.clone(),
                         label: "new choice".into(),
                         to: target,
@@ -841,14 +911,14 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
 
                 // Refilled from the document whenever the selection or the document changes,
                 // so an undo cannot leave the box describing a config that no longer exists.
-                let key = (selected.clone(), editor.story().checksum());
-                if app.config_key.as_ref() != Some(&key) {
-                    app.config_key = Some(key);
-                    app.config_buffer = config_text(spec);
+                let key = (selected.clone(), tab.editor.story().checksum());
+                if tab.config_key.as_ref() != Some(&key) {
+                    tab.config_key = Some(key);
+                    tab.config_buffer = config_text(spec);
                 }
 
                 ui.add(
-                    egui::TextEdit::multiline(&mut app.config_buffer)
+                    egui::TextEdit::multiline(&mut tab.config_buffer)
                         .desired_rows(4)
                         .desired_width(f32::INFINITY)
                         .code_editor()
@@ -860,13 +930,13 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                         .on_hover_text("Parse the text and store it on this node")
                         .clicked()
                     {
-                        app.pending.push(EditOp::SetGameplayConfig {
+                        tab.pending.push(EditOp::SetGameplayConfig {
                             node: selected.clone(),
-                            config: Some(app.config_buffer.clone()),
+                            config: Some(tab.config_buffer.clone()),
                         });
                     }
                     if spec.config.is_some() && ui.button("Clear config").clicked() {
-                        app.pending.push(EditOp::SetGameplayConfig {
+                        tab.pending.push(EditOp::SetGameplayConfig {
                             node: selected.clone(),
                             config: None,
                         });
@@ -884,8 +954,9 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                     .weak(),
                 );
 
-                let rows = crate::outcomes::rows(editor.story(), &selected);
-                let targets: Vec<String> = editor
+                let rows = crate::outcomes::rows(tab.editor.story(), &selected);
+                let targets: Vec<String> = tab
+                    .editor
                     .story()
                     .nodes
                     .keys()
@@ -941,18 +1012,18 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                 // as edits: collect during layout, act after.
                 if let Some((outcome, to)) = retarget {
                     match crate::outcomes::set(&selected, &outcome, &to) {
-                        Ok(op) => app.pending.push(op),
+                        Ok(op) => tab.pending.push(op),
                         Err(err) => outcome_error = Some(err),
                     }
                 }
                 if let Some(outcome) = unmapped {
-                    app.pending
+                    tab.pending
                         .push(crate::outcomes::remove(&selected, &outcome));
                 }
 
                 ui.horizontal(|ui| {
                     ui.add(
-                        egui::TextEdit::singleline(&mut app.new_outcome)
+                        egui::TextEdit::singleline(&mut tab.new_outcome)
                             .hint_text("outcome key")
                             .desired_width(140.0),
                     );
@@ -962,32 +1033,35 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                     // placeholder the author will change, rather than an empty combo
                     // that silently does nothing when clicked.
                     if ui.button("+").clicked() {
-                        let target = editor.story().start.clone();
-                        match crate::outcomes::set(&selected, &app.new_outcome, &target) {
+                        let target = tab.editor.story().start.clone();
+                        match crate::outcomes::set(&selected, &tab.new_outcome, &target) {
                             Ok(op) => {
-                                app.pending.push(op);
-                                app.new_outcome.clear();
+                                tab.pending.push(op);
+                                tab.new_outcome.clear();
                             }
                             Err(err) => outcome_error = Some(err),
                         }
                     }
                 });
 
-                // Field-level writes, not `set_status`: that method borrows all of
-                // `app`, and `editor` still holds a borrow of `app.editor` here.
+                // Field-level writes inside the closure, then reported once outside it:
+                // `set_status` borrows the whole app, and this closure holds the tab.
                 if let Some(message) = outcome_error {
-                    app.status = message;
-                    app.status_is_error = true;
+                    status_after = Some((message, true));
                 }
             }
         });
 
         if let Some(id) = select {
-            app.select(id);
+            Tab::plan_selection(&mut tab.selected, &mut tab.preview_steps, id);
+        }
+        if let Some((message, is_error)) = status_after {
+            app.set_status(message, is_error);
         }
     });
 }
 
+/// Right panel: the live preview and any problems.
 /// Right panel: the live preview and any problems.
 pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
     egui::Panel::right("preview")
@@ -1000,29 +1074,32 @@ pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
                 return;
             }
 
-            let Some(editor) = app.editor.as_ref() else {
-                return;
-            };
+            let active = app.active;
 
-            // Render into a texture, read it back, and hand it to egui. This is the
-            // engine, not a mock-up — see preview.rs for why the image goes through the
-            // CPU.
-            //
-            // Problems and the story are captured before any mutation: `set_status`
-            // borrows all of `app`, which would conflict with holding `editor`.
-            let steps = app.preview_steps.clone();
-            let assets = app.assets.clone();
-            let problems = editor.problems();
-            // Preview what the author is looking at, not the beginning of the story. A
-            // preview of node A while node B is selected teaches people to distrust the
-            // panel.
-            let start = app
-                .selected
-                .clone()
-                .unwrap_or_else(|| editor.story().start.clone());
-            let outcome = app
-                .preview
-                .render(ui.ctx(), editor.story(), &start, &steps, &assets);
+            // The frame is rendered while borrowing the tab immutably and the renderer
+            // mutably. Those are two different fields of the app, which is the only reason
+            // this is possible without cloning the story every frame.
+            let rendered = {
+                let Some(tab) = app.tabs.get(active) else {
+                    return;
+                };
+                let steps = tab.preview_steps.clone();
+                let assets = tab.assets.clone();
+                let problems = tab.editor.problems();
+                // Preview what the author is looking at, not the beginning of the story. A
+                // preview of node A while node B is selected teaches people to distrust the
+                // panel.
+                let start = tab
+                    .selected_node()
+                    .unwrap_or_else(|| tab.story().start.clone());
+
+                let outcome = app
+                    .preview
+                    .render(ui.ctx(), tab.story(), &start, &steps, &assets);
+                (outcome, problems)
+            };
+            let (outcome, problems) = rendered;
+
             let (report, failed) = match outcome {
                 Ok(report) => (report, None),
                 Err(err) => (
@@ -1035,11 +1112,7 @@ pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
                 ),
             };
 
-            app.preview_status = report.status.clone();
-            app.status_is_error = failed.is_some();
-            if let Some(err) = failed {
-                app.set_status(format!("preview: {err}"), true);
-            }
+            let mut advance: Option<Step> = None;
 
             if let Some(handle) = app.preview.texture() {
                 let available = ui.available_width();
@@ -1053,14 +1126,22 @@ pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
                         .sense(egui::Sense::click()),
                 );
                 if response.clicked() {
-                    app.preview_steps.push(Step::Click);
+                    advance = Some(Step::Click);
                 }
             }
 
             ui.separator();
-            ui.label(format!("at {}", app.preview_status));
-            if !app.preview_steps.is_empty() && ui.button("Reset preview").clicked() {
-                app.preview_steps.clear();
+            ui.label(format!("at {}", report.status));
+            if !app
+                .tabs
+                .get(active)
+                .is_some_and(|tab| tab.preview_steps.is_empty())
+                && ui.button("Reset preview").clicked()
+            {
+                advance = None;
+                if let Some(tab) = app.tabs.get_mut(active) {
+                    tab.preview_steps.clear();
+                }
             }
 
             // The branches on offer, as buttons pressed in the playthrough. Without these
@@ -1069,11 +1150,17 @@ pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
                 ui.separator();
                 for (index, label) in report.choices.iter().enumerate() {
                     if ui.button(format!("{}. {label}", index + 1)).clicked() {
-                        app.preview_steps.push(Step::Choose(index));
+                        advance = Some(Step::Choose(index));
                     }
                 }
             } else if report.finished {
                 ui.label(egui::RichText::new("The story has ended.").weak());
+            }
+
+            if let Some(step) = advance
+                && let Some(tab) = app.tabs.get_mut(active)
+            {
+                tab.preview_steps.push(step);
             }
 
             if !problems.is_empty() {
@@ -1085,6 +1172,14 @@ pub fn inspector(app: &mut EditorApp, ui: &mut egui::Ui) {
                 for problem in problems {
                     ui.label(format!("• {problem}"));
                 }
+            }
+
+            // Written after the panel's own borrows end: `set_status` takes the whole app.
+            if let Some(tab) = app.tabs.get_mut(active) {
+                tab.preview_status = report.status.clone();
+            }
+            if let Some(err) = failed {
+                app.set_status(format!("preview: {err}"), true);
             }
         });
 }
@@ -1385,13 +1480,21 @@ pub fn help_window(app: &mut EditorApp, ui: &mut egui::Ui) {
                 });
             };
 
-            row("Ctrl+N", "New story");
-            row("Ctrl+O", "Open a story");
+            row("Ctrl+N", "New story in a new tab");
+            row("Ctrl+O", "Open a story in a new tab");
             row("Ctrl+S", "Save");
             row("Ctrl+Shift+S", "Save as");
+            row("Ctrl+W", "Close the tab");
             row("Ctrl+Z", "Undo");
             row("Ctrl+Y", "Redo");
             row("F1", "This list");
+
+            ui.separator();
+            ui.label(egui::RichText::new("Tabs").strong());
+            ui.label("Several stories can be open at once; click a tab to switch.");
+            ui.label("A dot after the name means unsaved changes.");
+            ui.label("Closing a tab with unsaved changes asks first, and so does closing");
+            ui.label("the window — every dirty tab is asked about, not just the visible one.");
 
             ui.separator();
             ui.label(egui::RichText::new("Preview").strong());
