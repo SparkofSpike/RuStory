@@ -108,6 +108,21 @@ pub enum EditOp {
     /// does without saying so.
     DeleteChoice { node: NodeId, index: usize },
 
+    /// Replace the configuration a gameplay system receives.
+    ///
+    /// `config` is RON text handed to the system verbatim, and the editor does not know its
+    /// shape — that is ADR 0003's whole point: the core refuses to learn any system's config,
+    /// so adding a gameplay never means editing the core. The text is therefore checked only
+    /// for being parseable RON, which still catches the mistake that actually happens (a
+    /// missing comma, a stray bracket) before it reaches a playthrough.
+    ///
+    /// `None`, or text that is empty once trimmed, clears the config.
+    SetGameplayConfig {
+        node: NodeId,
+        #[serde(default)]
+        config: Option<String>,
+    },
+
     /// Move an option within its list.
     ///
     /// Order is the order the player reads, so it is part of the writing, not a detail of
@@ -244,6 +259,13 @@ impl EditOp {
             Self::DeleteChoice { node, index } => format!("delete choice {index} in {node}"),
             Self::MoveChoice { node, from, to } => {
                 format!("move choice {from} to {to} in {node}")
+            }
+            Self::SetGameplayConfig { node, config } => {
+                if config.is_some() {
+                    format!("set config of {node}")
+                } else {
+                    format!("clear config of {node}")
+                }
             }
             Self::SetOutcome { node, outcome, to } => {
                 format!("map outcome {outcome} to {to} in {node}")

@@ -62,6 +62,9 @@ pub enum EditError {
     #[error("the edit would leave the story invalid: {0}")]
     WouldInvalidate(#[from] CoreError),
 
+    #[error("node `{node}`: the gameplay config is not valid RON: {message}")]
+    BadConfig { node: NodeId, message: String },
+
     #[error("cannot read {path}: {message}")]
     Io { path: String, message: String },
 
@@ -100,6 +103,7 @@ impl EditError {
             Self::CannotDeleteLastChoice { .. } => "cannot_delete_last_choice",
             Self::EmptyNodeId(_) => "empty_node_id",
             Self::WouldInvalidate(_) => "would_invalidate",
+            Self::BadConfig { .. } => "bad_config",
             Self::Io { .. } => "io",
             Self::Parse { .. } => "parse",
             Self::Write { .. } => "write",
@@ -141,6 +145,10 @@ mod tests {
             EditError::CannotDeleteLastChoice { node: node.clone() },
             EditError::EmptyNodeId(String::new()),
             EditError::WouldInvalidate(CoreError::MissingStartNode("n".into())),
+            EditError::BadConfig {
+                node: node.clone(),
+                message: "m".into(),
+            },
             EditError::Io {
                 path: "p".into(),
                 message: "m".into(),
@@ -172,6 +180,6 @@ mod tests {
                 "`{code}` is not a snake_case identifier"
             );
         }
-        assert_eq!(seen.len(), 16, "a variant was added without a code");
+        assert_eq!(seen.len(), 17, "a variant was added without a code");
     }
 }

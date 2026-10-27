@@ -1417,3 +1417,105 @@ fn reordering_a_node_that_offers_no_choices_is_refused() {
         .expect_err("a goto has no options");
     assert!(matches!(err, EditError::NoChoices(_)), "{err}");
 }
+
+// --- gameplay config ----------------------------------------------------
+
+#[test]
+fn a_gameplay_config_can_be_set_and_read_back() {
+    let mut editor = gameplay();
+    let node = NodeId::from("play");
+    assert_eq!(gameplay_spec(&editor).config, None);
+
+    editor
+        .apply(&EditOp::SetGameplayConfig {
+            node: node.clone(),
+            config: Some("(duration_ms: 3000)".into()),
+        })
+        .expect("applies");
+
+    let config = gameplay_spec(&editor).config.clone().expect("config set");
+    // Compared as text rather than by shape: `ron::Value` is the point — the editor has no
+    // opinion about the type, only that it parses.
+    let text = ron::ser::to_string(&config).expect("serialises");
+    assert!(text.contains("duration_ms"), "{text}");
+    assert!(text.contains("3000"), "{text}");
+}
+
+#[test]
+fn a_broken_config_is_refused_and_the_old_one_survives() {
+    let mut editor = gameplay();
+    let node = NodeId::from("play");
+    editor
+        .apply(&EditOp::SetGameplayConfig {
+            node: node.clone(),
+            config: Some("(duration_ms: 3000)".into()),
+        })
+        .expect("applies");
+    let before = editor.story().clone();
+
+    let err = editor
+        .apply(&EditOp::SetGameplayConfig {
+            node: node.clone(),
+            config: Some("(duration_ms: ".into()),
+        })
+        .expect_err("unbalanced parens must not be accepted");
+
+    assert!(matches!(err, EditError::BadConfig { .. }), "{err}");
+    assert_eq!(
+        editor.story(),
+        &before,
+        "a refused config must not clear the working one"
+    );
+}
+
+#[test]
+fn an_empty_config_clears_it() {
+    let mut editor = gameplay();
+    let node = NodeId::from("play");
+    editor
+        .apply(&EditOp::SetGameplayConfig {
+            node: node.clone(),
+            config: Some("(duration_ms: 3000)".into()),
+        })
+        .expect("applies");
+    assert!(gameplay_spec(&editor).config.is_some());
+
+    // Empty text from a text box that the author emptied, not an explicit `None`.
+    editor
+        .apply(&EditOp::SetGameplayConfig {
+            node: node.clone(),
+            config: Some("   ".into()),
+        })
+        .expect("clears");
+    assert_eq!(gameplay_spec(&editor).config, None);
+
+    editor
+        .apply(&EditOp::SetGameplayConfig {
+            node: node.clone(),
+            config: Some("(x: 1)".into()),
+        })
+        .expect("applies");
+    editor
+        .apply(&EditOp::SetGameplayConfig { node, config: None })
+        .expect("clears");
+    assert_eq!(gameplay_spec(&editor).config, None);
+}
+
+#[test]
+fn a_config_can_only_be_set_on_a_gameplay_node() {
+    let mut editor = linked();
+    let err = editor
+        .apply(&EditOp::SetGameplayConfig {
+            node: NodeId::from("a"),
+            config: Some("(x: 1)".into()),
+        })
+        .expect_err("a goto has no config");
+    assert!(matches!(err, EditError::NoGameplay(_)), "{err}");
+}
+
+fn gameplay_spec(editor: &Editor) -> &GameplaySpec {
+    match &editor.story().nodes[&NodeId::from("play")].exit {
+        Exit::Gameplay { spec } => spec,
+        other => panic!("expected a gameplay exit, got {other:?}"),
+    }
+}

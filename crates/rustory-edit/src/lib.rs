@@ -35,6 +35,7 @@
 #![forbid(unsafe_code)]
 
 mod apply;
+mod config;
 mod document;
 mod draft;
 mod editor;
@@ -42,6 +43,7 @@ mod error;
 mod op;
 
 pub use crate::apply::Reference;
+pub use crate::config::{parse as parse_config, spec_to_ron, to_ron as config_to_ron};
 pub use document::Document;
 pub use draft::Draft;
 pub use editor::{BatchError, Editor, HISTORY_LIMIT, HistoryEntry, problems_of};
@@ -143,6 +145,11 @@ pub fn catalogue() -> Vec<OpInfo> {
             E::DeleteOutcome { .. } => {
                 ("DeleteOutcome", "Remove a gameplay outcome mapping.", true)
             }
+            E::SetGameplayConfig { .. } => (
+                "SetGameplayConfig",
+                "Replace the RON config a gameplay system receives.",
+                false,
+            ),
         };
 
         OpInfo {
@@ -239,6 +246,10 @@ pub fn catalogue() -> Vec<OpInfo> {
         E::DeleteOutcome {
             node: NodeId::from("confession"),
             outcome: OutcomeKey::from("correct"),
+        },
+        E::SetGameplayConfig {
+            node: NodeId::from("confession"),
+            config: Some("(duration_ms: 3000, prompt: Some(\"She is waiting\"))".into()),
         },
     ];
 

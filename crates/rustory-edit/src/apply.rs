@@ -291,6 +291,25 @@ pub(crate) fn apply(story: &mut Story, op: &EditOp) -> Result<(), EditError> {
             choices.insert(target, choice);
         }
 
+        EditOp::SetGameplayConfig { node, config } => {
+            let node_ref = story
+                .nodes
+                .get_mut(node)
+                .ok_or_else(|| EditError::NoSuchNode(node.clone()))?;
+            let Exit::Gameplay { spec } = &mut node_ref.exit else {
+                return Err(EditError::NoGameplay(node.clone()));
+            };
+            // Parsed before assigning, so a typo leaves the previous config in place rather
+            // than replacing a working scene with an empty one.
+            spec.config =
+                crate::config::parse(config.as_deref().unwrap_or("")).map_err(|message| {
+                    EditError::BadConfig {
+                        node: node.clone(),
+                        message,
+                    }
+                })?;
+        }
+
         EditOp::SetOutcome { node, outcome, to } => {
             let node_ref = story
                 .nodes
