@@ -130,11 +130,19 @@ intermediate, and this ADR should be superseded.
 
 ## Known gaps
 
-- **The preview cannot show a gameplay system's own screen.** Stepping into a handover runs
-  the system with a synthetic "take the first option" input, because a preview must be
-  reproducible. A timed choice's countdown and a quiz's questions have no rendering in the
-  engine yet, so the preview jumps from the last line to the outcome. This is an engine gap,
-  not an editor one: `rustory play` shows the same nothing.
+- **Playing a gameplay handover in the preview commits to the first option.** Stepping into a
+  handover runs the system with a synthetic input, because a preview must be reproducible.
+  The consequence is worth stating precisely, because an earlier revision of this ADR
+  overstated it: a gameplay's *screen* does render — `GameplaySystem::prompt` produces the
+  text, and `rustory shot --at <node>:<beat>` shows the countdown, the question and the
+  options (`shots/gameplay.png`). What the preview does not do is let you *answer* a handover
+  differently; the choice is made for you.
+
+  The real limitation is narrower and belongs in the engine's own record: a system can only
+  express itself as one string, laid out as a paragraph. Options cannot be highlighted, a
+  countdown cannot be a bar, a board cannot be drawn. Both shipped systems fit because both are
+  "read text, press a number"; the first one that does not will need a structured channel from
+  a system to the renderer, not a bigger string.
 - **The preview does not re-render on window resize.** The logical resolution is fixed,
   so this only shows up as letterboxing differences.
 - **No colour grading or theme editor.** Layout constants are compiled in; a project that
