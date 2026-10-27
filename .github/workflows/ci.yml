@@ -1,0 +1,60 @@
+name: CI
+
+# What this workflow is for
+#
+# README claims a test count, and a claim nobody checks decays. Three gates on every push:
+# the code is formatted, clippy has nothing to say, and the tests pass. Nothing here builds
+# a release artifact — this is a correctness gate, not a packaging pipeline.
+#
+# Linux rather than Windows because the runner costs nothing and starts faster. The GPU
+# tests skip themselves when no adapter is present (they print `skipping ... test`), so a
+# headless machine checks the same logic a desktop does.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A warning nobody fails on is a warning nobody reads. Keep this on so clippy's advice
+  # cannot rot into background noise.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  fmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      # Formatting is checked, never applied: CI that rewrites the tree leaves a developer
+      # unsure whether the change on disk is theirs.
+      - run: cargo fmt --all -- --check
+
+  clippy-and-test:
+    name: clippy + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # winit needs xkbcommon and wayland headers to compile on Linux. wgpu itself is pure
+      # Rust; the driver is only needed at run time, and the tests skip when it is missing.
+      - name: Install windowing headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo clippy --workspace --all-targets
+
+      # --no-fail-fast so one broken crate does not hide the state of the other five.
+      - run: cargo test --workspace --no-fail-fast
