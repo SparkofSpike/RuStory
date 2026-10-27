@@ -2,13 +2,16 @@ name: CI
 
 # What this workflow is for
 #
-# README claims a test count, and a claim nobody checks decays. Three gates on every push:
-# the code is formatted, clippy has nothing to say, and the tests pass. Nothing here builds
-# a release artifact — this is a correctness gate, not a packaging pipeline.
+# README claims a test count, and a claim nobody checks decays. These gates run on every
+# push: the code is formatted, clippy has nothing to say, the tests pass, and every command
+# the README tells a reader to try actually runs.
+#
+# Nothing here builds a release artifact — this is a correctness gate, not a packaging
+# pipeline.
 #
 # Linux rather than Windows because the runner costs nothing and starts faster. The GPU
-# tests skip themselves when no adapter is present (they print `skipping ... test`), so a
-# headless machine checks the same logic a desktop does.
+# tests skip themselves when no adapter is present, and Ubuntu's software Vulkan usually
+# means they run instead; either way the logic is exercised.
 
 on:
   push:
@@ -27,7 +30,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -39,7 +42,7 @@ jobs:
     name: clippy + test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -58,3 +61,49 @@ jobs:
 
       # --no-fail-fast so one broken crate does not hide the state of the other five.
       - run: cargo test --workspace --no-fail-fast
+
+  smoke:
+    name: README commands
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install windowing headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev pkg-config
+      - uses: Swatinem/rust-cache@v2
+
+      # Every command below appears in README.md or in `--help`. A documented command that
+      # does not run is a lie the reader discovers on their own machine, which is the worst
+      # place to find one.
+      - name: Validate the demo story
+        run: cargo run -q -p rustory -- check stories/demo.ron
+
+      - name: The check report parses as JSON
+        run: |
+          cargo run -q -p rustory -- check stories/demo.ron --json \
+            | python3 -c "import json,sys; r=json.load(sys.stdin); assert r['ok'] and r['nodes'] > 0, r"
+
+      - name: The operation catalogue is self-describing
+        run: |
+          cargo run -q -p rustory -- ops --json \
+            | python3 -c "import json,sys; r=json.load(sys.stdin); assert r['count'] == len(r['operations']); assert all(o['example'] for o in r['operations']), r"
+
+      - name: A documented operation applies
+        run: |
+          cargo run -q -p rustory -- edit stories/demo.ron \
+            --op '{"op":"SetTitle","title":"Checked"}' --dry-run
+
+      - name: Generate the placeholder art
+        run: cargo run -q -p rustory -- gen-assets assets
+
+      - name: Render a frame by position
+        run: cargo run -q -p rustory -- shot stories/demo.ron --at honest:2 --out /tmp/frame.png
+
+      - name: Play the story headlessly
+        run: cargo run -q -p rustory -- transcript stories/demo.ron
+
+      - name: The editor renders a frame without a window
+        run: cargo run -q -p rustory-editor -- --check stories/demo.ron --out /tmp/preview.png
