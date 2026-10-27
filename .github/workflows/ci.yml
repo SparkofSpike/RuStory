@@ -47,13 +47,15 @@ jobs:
         with:
           components: clippy
 
-      # Compile-time system dependencies: winit needs xkbcommon and wayland headers, cpal
-      # needs ALSA headers. wgpu is pure Rust, and its driver is only needed at run time.
-      - name: Install system headers
+      # winit needs xkbcommon and wayland headers, cpal needs ALSA, and the renderer needs a
+      # Vulkan driver at run time. lavapipe is the software one, so a machine with no GPU still
+      # draws — which is what makes the frame checks below meaningful on a runner.
+      - name: Install system headers and a software Vulkan driver
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libxkbcommon-dev libwayland-dev libasound2-dev pkg-config
+            libxkbcommon-dev libwayland-dev libasound2-dev pkg-config \
+            mesa-vulkan-drivers
 
       - uses: Swatinem/rust-cache@v2
 
@@ -68,11 +70,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install system headers
+      - name: Install system headers and a software Vulkan driver
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libxkbcommon-dev libwayland-dev libasound2-dev pkg-config
+            libxkbcommon-dev libwayland-dev libasound2-dev pkg-config \
+            mesa-vulkan-drivers
       - uses: Swatinem/rust-cache@v2
 
       # Every command below appears in README.md or in `--help`. A documented command that
