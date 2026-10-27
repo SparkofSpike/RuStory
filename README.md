@@ -271,11 +271,16 @@ from a script.
 
 ## Contributing
 
-Read [`AGENTS.md`](AGENTS.md) first — it is the operating standard for this
-repository and is written for both humans and coding agents.
+See [`docs/contributing.md`](docs/contributing.md): the build and test commands, the four
+rules that are not negotiable, the commit convention, and how to add a gameplay or change
+an architectural decision.
 
 Commits follow Conventional Commits in English, one logical change per commit.
 
 ## License
 
-MIT OR Apache-2.0, at your option.
+MIT OR Apache-2.0, at your option. See [`LICENSE-MIT`](LICENSE-MIT) and
+[`LICENSE-APACHE`](LICENSE-APACHE).
+
+This project is not affiliated with or endorsed by the Rust Foundation. "Rust" is used
+only to say what the engine is written in.
