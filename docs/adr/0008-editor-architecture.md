@@ -117,7 +117,7 @@ intermediate, and this ADR should be superseded.
 
 ## Verification
 
-- `cargo test --workspace` — 253 tests. `rustory-edit` contributes 73 of them, covering
+- `cargo test --workspace` — 267 tests. `rustory-edit` contributes 73 of them, covering
   every operation, every refusal, batch rollback, undo/redo, and a lossless save/reload
   round-trip including non-ASCII text.
 - `rustory ops --json` prints the operation vocabulary with `changes_structure` flags.
@@ -135,8 +135,6 @@ intermediate, and this ADR should be superseded.
   reproducible. A timed choice's countdown and a quiz's questions have no rendering in the
   engine yet, so the preview jumps from the last line to the outcome. This is an engine gap,
   not an editor one: `rustory play` shows the same nothing.
-- **One document at a time.** No tabs, so comparing two chapters means two windows. Fine while
-  a project is one file; wrong as soon as it is not.
 - **The preview does not re-render on window resize.** The logical resolution is fixed,
   so this only shows up as letterboxing differences.
 - **No colour grading or theme editor.** Layout constants are compiled in; a project that
@@ -155,7 +153,7 @@ intermediate, and this ADR should be superseded.
 
 ## What was added after the first version
 
-The two gaps this ADR originally listed are closed, and three more followed:
+The two gaps this ADR originally listed are closed, and four more followed:
 
 - **File dialogs.** New / Open / Save / Save-as, via `rfd`, isolated in `dialogs.rs` so the
   blocking behaviour is confined and the dependency is replaceable in one file. A new
@@ -168,6 +166,9 @@ The two gaps this ADR originally listed are closed, and three more followed:
   — the same reasoning as the core treating a config as opaque. Without it the editor could
   show where outcomes lead and not what the system does, which left the more important half
   of a gameplay node editable only by hand.
+- **Several documents at once.** The state that is about a story moved onto a `Tab`, and the
+  window kept the renderer, the status line and the recent list. See ADR 0010 for why the split
+  is by field rather than by convenience.
 
 A close guard was added at the same time. Unsaved work prompts before the window closes
 and before Open or New replaces the document, because losing a scene to a misclick is the

@@ -18,6 +18,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0007](0007-fonts-are-the-projects-choice.md) | Fonts are the project's responsibility, not the engine's | Accepted, implemented | Where do typefaces come from? |
 | [0008](0008-editor-architecture.md) | The editor is an operation layer with two front-ends | Accepted, implemented | How do a GUI and an agent edit the same story? |
 | [0009](0009-audio-as-beats.md) | Sound is a beat; a one-shot is an event, music is state | Accepted, implemented | When and how does the engine make noise? |
+| [0010](0010-multiple-documents.md) | Several documents, one window | Accepted, implemented | How are two chapters open at once? |
 
 ## Status meanings
 

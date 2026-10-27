@@ -57,7 +57,7 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 253 tests, including offscreen GPU renders, colour round-trips, and 73 in `rustory-edit`
+- 267 tests, including offscreen GPU renders, colour round-trips, and 73 in `rustory-edit`
 
 Not yet: rollback history, WASM plugins, an authoring tool. Those have ADRs describing the
 plan, not code pretending to be one.
@@ -76,6 +76,13 @@ nobody can find is not a shortcut.
 
 ![Keys and controls](shots/editor-help.png)
 
+Several stories can be open at once. Each tab carries its own selection, filter, preview path,
+undo history and recovery draft; the window keeps the renderer, the status line and the recent
+list. A dot after a name means unsaved changes, and closing a dirty tab — or the window — asks
+first.
+
+![Two documents open](shots/editor-tabs.png)
+
 ```console
 $ cargo run -p rustory-editor                        # new story
 $ cargo run -p rustory-editor -- stories/demo.ron    # open an existing one
@@ -89,10 +96,10 @@ its values, rather than inferring field names from prose. `--json` output is a s
 document on stdout; anything else goes to stderr, so a parser can trust it.
 
 The editor is a normal desktop application: **New / Open / Save / Save as** with
-`Ctrl+N`, `Ctrl+O`, `Ctrl+S`, `Ctrl+Shift+S`, undo and redo on `Ctrl+Z` / `Ctrl+Y`, and a
-prompt before anything throws away unsaved work. **Recent** keeps the last ten stories one
-click away, and the same list is readable from a terminal — an agent can ask what the user
-has been editing without opening a window:
+`Ctrl+N`, `Ctrl+O`, `Ctrl+S`, `Ctrl+Shift+S`, **Ctrl+W** to close a tab, undo and redo on
+`Ctrl+Z` / `Ctrl+Y`, and a prompt before anything throws away unsaved work. **Recent** keeps
+the last ten stories one click away, and the same list is readable from a terminal — an agent
+can ask what the user has been editing without opening a window:
 
 ```console
 $ cargo run -p rustory-editor -- --recent          # one path per line
@@ -229,7 +236,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 253 tests; render tests skip without a GPU
+cargo test --workspace      # 267 tests; render tests skip without a GPU
 cargo run -p rustory -- probe
 ```
 
