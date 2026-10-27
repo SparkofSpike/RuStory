@@ -14,6 +14,14 @@ use rustory_edit::prelude::*;
 use crate::app::{EditorApp, UiAction};
 use crate::preview::{PreviewReport, Step};
 
+/// The config as text for the box, or an empty string when there is none.
+///
+/// Delegated to the operation layer, which owns the text form: the editor should not know
+/// what a `PrettyConfig` is, and one parser means the GUI and the CLI refuse the same text.
+fn config_text(spec: &GameplaySpec) -> String {
+    rustory_edit::spec_to_ron(spec)
+}
+
 /// Whether a node id matches the filter text. Case-insensitive, trimmed, and an empty
 /// filter matches everything.
 ///
@@ -820,6 +828,51 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
             // systems. The runtime refuses an unmapped key with a clear error, so a typo
             // surfaces immediately rather than silently skipping a branch.
             if let Exit::Gameplay { spec } = &node.exit {
+                ui.separator();
+                ui.label("Config");
+                ui.label(
+                    egui::RichText::new(format!(
+                        "RON handed to `{}` verbatim; the editor only checks that it parses",
+                        spec.system
+                    ))
+                    .small()
+                    .weak(),
+                );
+
+                // Refilled from the document whenever the selection or the document changes,
+                // so an undo cannot leave the box describing a config that no longer exists.
+                let key = (selected.clone(), editor.story().checksum());
+                if app.config_key.as_ref() != Some(&key) {
+                    app.config_key = Some(key);
+                    app.config_buffer = config_text(spec);
+                }
+
+                ui.add(
+                    egui::TextEdit::multiline(&mut app.config_buffer)
+                        .desired_rows(4)
+                        .desired_width(f32::INFINITY)
+                        .code_editor()
+                        .hint_text("(duration_ms: 3000)"),
+                );
+                ui.horizontal(|ui| {
+                    if ui
+                        .button("Apply config")
+                        .on_hover_text("Parse the text and store it on this node")
+                        .clicked()
+                    {
+                        app.pending.push(EditOp::SetGameplayConfig {
+                            node: selected.clone(),
+                            config: Some(app.config_buffer.clone()),
+                        });
+                    }
+                    if spec.config.is_some() && ui.button("Clear config").clicked() {
+                        app.pending.push(EditOp::SetGameplayConfig {
+                            node: selected.clone(),
+                            config: None,
+                        });
+                    }
+                });
+
                 ui.separator();
                 ui.label("Outcomes");
                 ui.label(

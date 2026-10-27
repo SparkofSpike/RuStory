@@ -105,6 +105,15 @@ pub struct EditorApp {
     comment_warning_seen: bool,
     /// Whether the shortcut sheet is open.
     pub show_help: bool,
+
+    /// The gameplay config text being edited, and a key saying what it was read from.
+    ///
+    /// A buffer rather than a binding to the document: the box has to hold text that is not
+    /// yet valid RON (half a parenthesis, a trailing comma) while the author types. The key is
+    /// `(node, story checksum)`, so an undo or an external edit refills the box instead of
+    /// leaving stale text that no longer describes the story.
+    pub config_key: Option<(NodeId, u64)>,
+    pub config_buffer: String,
 }
 
 impl EditorApp {
@@ -131,6 +140,8 @@ impl EditorApp {
             draft_due: None,
             comment_warning_seen: false,
             show_help: false,
+            config_key: None,
+            config_buffer: String::new(),
         };
 
         // A list that mentions files deleted outside the editor is worse than a short
