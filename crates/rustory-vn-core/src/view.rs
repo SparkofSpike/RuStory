@@ -47,7 +47,7 @@ pub const VIEW_WIDTH: f32 = 1280.0;
 pub const VIEW_HEIGHT: f32 = 720.0;
 
 /// A rectangle in the design box, origin top-left.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ViewRect {
     pub x: f32,
     pub y: f32,
@@ -109,7 +109,7 @@ impl ViewRect {
 /// A system names a role; the project decides the value. That is what keeps a gameplay system
 /// from carrying its own visual identity into a story that has one already, and it is why a
 /// system can be moved between projects without a restyle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Tone {
     /// A surface behind content: a full-screen backdrop, a card.
     Panel,
@@ -130,7 +130,7 @@ pub enum Tone {
 }
 
 /// Where a text run starts inside its rectangle.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum Align {
     /// Left edge, which is what prose wants.
     #[default]
@@ -143,7 +143,7 @@ pub enum Align {
 ///
 /// Elements are drawn in list order, so a later element covers an earlier one. That is the whole
 /// of the layering model — a system that needs z-order reorders its list.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Element {
     /// A wrapped run of text.
     ///
@@ -262,7 +262,7 @@ impl Element {
 ///
 /// Empty is legal and means "draw nothing of my own", which is what a headless run or a system
 /// that only needs the story's own screen wants.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct GameplayView {
     pub elements: Vec<Element>,
 }

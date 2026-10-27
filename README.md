@@ -57,10 +57,10 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 325 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
+- 333 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
 
-Not yet: player rollback history, WASM plugins, pointer input for gameplay. Those have ADRs
-describing the plan, not code pretending to be one.
+Not yet: player rollback history, pointer input for gameplay, a flag to load a wasm module.
+Those have ADRs describing the plan, not code pretending to be one.
 
 ## Editor
 
@@ -222,6 +222,7 @@ borrowed.**
 | Story format | `rustory-vn-script` | RON loading, reference validation |
 | Renderer | `rustory-vn-render` | Draw list → pixels on `wgpu`. Knows nothing about stories |
 | Gameplay | `rustory-vn-gameplay-timer`, `rustory-vn-gameplay-quiz` | Two systems bracketing the range: a countdown, and state no counter could hold |
+| Sandbox | `rustory-vn-gameplay-wasm` | The same contract, reached through a WebAssembly boundary. Runs code the engine did not write |
 | Editor | `rustory-vn-edit` | Document, typed operations, undo, validation. No UI, no pixels |
 | Application | `apps/rustory-vn`, `apps/rustory-vn-editor` | CLI and player; GUI editor. Both are front-ends over `rustory-vn-edit` |
 
@@ -250,7 +251,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 325 tests; render tests skip without a GPU
+cargo test --workspace      # 333 tests; render tests skip without a GPU
 cargo run -p rustory-vn -- probe
 ```
 
@@ -390,6 +391,13 @@ bars in the engine's 1280×720 design box, coloured by role rather than by value
 keeps its palette and a system stays portable. `rustory shot <story> --at <node>:exit` renders
 one without a window — see the last two screenshots above and
 [ADR 0013](docs/adr/0013-gameplay-draws-itself.md).
+
+A system does not have to be Rust compiled into the binary. `rustory-vn-gameplay-wasm` runs a
+WebAssembly module through the same trait — with no imports at all, so a guest cannot open a
+file or read the clock, and a per-call instruction budget, so it cannot hang the window. The
+budget is roughly four thousand instructions per frame, measured against wasmi's host-stack
+behaviour; a system that needs more needs a worker thread or a different runtime. See
+[ADR 0015](docs/adr/0015-wasm-tier.md).
 
 ## Contributing
 

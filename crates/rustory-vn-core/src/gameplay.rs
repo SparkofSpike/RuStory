@@ -73,7 +73,7 @@ impl Stats {
 ///
 /// Gameplay systems must not care whether input came from a mouse, a key or a
 /// network peer, so they receive this instead of platform events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GameplayInput {
     /// The player clicked, tapped or pressed confirm.
     Confirm,
@@ -95,7 +95,7 @@ pub enum GameplayInput {
 ///
 /// No `Default`: a snapshot is produced by a narrative, and an empty one would have to invent
 /// a node, which is the kind of placeholder that ends up compared against by accident.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct NarrativeSnapshot {
     /// The node that handed control over.
     pub node: NodeId,

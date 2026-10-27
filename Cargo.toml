@@ -6,6 +6,7 @@ members = [
     "crates/rustory-vn-render",
     "crates/rustory-vn-gameplay-timer",
     "crates/rustory-vn-gameplay-quiz",
+    "crates/rustory-vn-gameplay-wasm",
     "crates/rustory-vn-edit",
     "crates/rustory-vn-audio",
     "apps/rustory-vn",
@@ -27,6 +28,7 @@ rustory-vn-script = { path = "crates/rustory-vn-script" }
 rustory-vn-render = { path = "crates/rustory-vn-render" }
 rustory-vn-gameplay-timer = { path = "crates/rustory-vn-gameplay-timer" }
 rustory-vn-gameplay-quiz = { path = "crates/rustory-vn-gameplay-quiz" }
+rustory-vn-gameplay-wasm = { path = "crates/rustory-vn-gameplay-wasm" }
 rustory-vn-edit = { path = "crates/rustory-vn-edit" }
 rustory-vn-audio = { path = "crates/rustory-vn-audio" }
 

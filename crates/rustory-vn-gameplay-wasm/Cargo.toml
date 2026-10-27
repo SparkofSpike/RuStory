@@ -1,0 +1,15 @@
+[package]
+name = "rustory-vn-gameplay-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "RuStory gameplay system that runs a WebAssembly guest instead of compiled-in Rust"
+
+[dependencies]
+rustory-vn-core = { workspace = true }
+serde = { workspace = true }
+ron = { workspace = true }
+thiserror = { workspace = true }
+wasmi = "2.0.0"

@@ -1,6 +1,8 @@
 # ADR 0005 — WASM sandbox vs upper-layer UI: split by what each can break
 
-- **Status**: **Proposed**, not implemented
+- **Status**: **Proposed**, not implemented. The WASM tier has since been built — see
+  [0015](0015-wasm-tier.md). The decision tree below still stands; the "why not now" section
+  does not, and is kept because the reasoning is what changed.
 - **Date**: 2026-10-26
 - **Open question**: which gameplay goes to WASM, which to an upper-layer UI?
 

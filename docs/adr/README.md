@@ -23,6 +23,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0012](0012-gameplay-sees-the-story.md) | A gameplay system can see where the story is | Accepted, implemented | Does gameplay need read-only narrative state? |
 | [0013](0013-gameplay-draws-itself.md) | A gameplay system draws its own screen | Accepted, implemented | How does a board, a cursor or a bar get on screen? |
 | [0014](0014-two-ways-back.md) | Two ways back: save slots for players, a timeline for authors | Accepted, implemented (timeline) | How does someone return to an earlier state? |
+| [0015](0015-wasm-tier.md) | A third tier: gameplay that arrives as WebAssembly | Accepted, implemented | How does untrusted gameplay run without rebuilding the engine? |
 
 ## Status meanings
 
@@ -40,5 +41,6 @@ None of these are decided. Writing one is the first step before changing code.
   Input is still `Confirm` and `Select { index }`. Needs an ADR before code.
 - **Persisting the editing timeline**: history is in memory only. A named checkpoint file is
   the obvious next step; where it lives and how it interacts with git is undecided.
+- **Registering a wasm module from a script or a flag**: the runtime exists (ADR 0015) and the
+  loader is a library call; the user-facing way to name a module is not decided.
 - **Format evolution**: how a script migrates when the story format gains a DSL.
-- **WASM sandbox**: ADR 0005 is a proposal with no code behind it.

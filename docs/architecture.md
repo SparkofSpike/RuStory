@@ -30,6 +30,7 @@ gameplay system holds any.
         ├── rustory-vn-script
         ├── rustory-vn-gameplay-timer
         ├── rustory-vn-gameplay-quiz
+        ├── rustory-vn-gameplay-wasm
         └── rustory-vn-core
                 ▲
    rustory-vn-edit ─┘
@@ -38,6 +39,7 @@ gameplay system holds any.
    rustory-vn-script ─┘
    rustory-vn-gameplay-timer ─┘
    rustory-vn-gameplay-quiz ──┘
+   rustory-vn-gameplay-wasm ──┘
 ```
 
 **Every dependency points at `rustory-vn-core`.** The core depends on nothing above
@@ -52,6 +54,7 @@ it. Cargo's dependency declarations enforce this, not discipline.
 | `rustory-vn-audio` | Fade and track-change state machine | Open a device, decode a file, or know what a scene is |
 | `rustory-vn-gameplay-timer` | One concrete gameplay system | Read the stage or the story graph |
 | `rustory-vn-gameplay-quiz` | A second one, with state no counter could hold | Ditto |
+| `rustory-vn-gameplay-wasm` | The same contract behind a WebAssembly boundary: loader, fuel budget, RON payloads | Contain a gameplay rule of its own, or import anything into the guest |
 
 ---
 
