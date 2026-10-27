@@ -46,14 +46,14 @@ pub use crate::apply::Reference;
 pub use crate::config::{parse as parse_config, spec_to_ron, to_ron as config_to_ron};
 pub use document::Document;
 pub use draft::Draft;
-pub use editor::{BatchError, Editor, HISTORY_LIMIT, HistoryEntry, problems_of};
+pub use editor::{BatchError, Editor, HISTORY_LIMIT, HistoryEntry, TimelinePoint, problems_of};
 pub use error::EditError;
 pub use op::EditOp;
 
 /// Convenience re-exports for callers that only manipulate stories.
 pub mod prelude {
     pub use crate::op::{BeatLocation, EditOp, NodeView};
-    pub use crate::{Document, EditError, Editor, HistoryEntry};
+    pub use crate::{Document, EditError, Editor, HistoryEntry, TimelinePoint};
     pub use rustory_vn_core::{
         ActorId, Beat, Choice, Exit, GameplaySpec, Node, NodeId, OutcomeKey, Slot, Story,
         StoryMeta, SystemId, Text,

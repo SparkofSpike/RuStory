@@ -223,8 +223,9 @@ GPU is an environment fact, not a regression.
 
 ## 8. Known gaps
 
-- **No rollback history.** `SaveState` supports it, but nothing keeps a ring of
-  past snapshots yet — that needs UI for picking a point, not just storage.
+- **No rollback history for players.** `SaveState` supports it, but nothing keeps a ring of
+  past snapshots yet — that needs UI for picking a point, not just storage. Authors do have a
+  timeline of document states (ADR 0014); a player has save files.
 - **No audio mixing.** One music track plus one-shot effects, both driven by beats. Layered
   ambience needs a mixer, and a mixer written before a story asks for one is speculative. See
   ADR 0009.

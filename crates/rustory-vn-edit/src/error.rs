@@ -78,6 +78,9 @@ pub enum EditError {
 
     #[error("cannot write {path}: {message}")]
     Write { path: String, message: String },
+
+    #[error("no timeline point {index}: the editor can reach {reachable} point(s)")]
+    NoSuchPoint { index: usize, reachable: usize },
 }
 
 impl EditError {
@@ -107,6 +110,7 @@ impl EditError {
             Self::Io { .. } => "io",
             Self::Parse { .. } => "parse",
             Self::Write { .. } => "write",
+            Self::NoSuchPoint { .. } => "no_such_point",
         }
     }
 }
@@ -145,6 +149,10 @@ mod tests {
             EditError::CannotDeleteLastChoice { node: node.clone() },
             EditError::EmptyNodeId(String::new()),
             EditError::WouldInvalidate(CoreError::MissingStartNode("n".into())),
+            EditError::NoSuchPoint {
+                index: 3,
+                reachable: 2,
+            },
             EditError::BadConfig {
                 node: node.clone(),
                 message: "m".into(),
@@ -168,8 +176,9 @@ mod tests {
 
     #[test]
     fn every_failure_has_its_own_stable_code() {
+        let variants = every_variant();
         let mut seen = std::collections::BTreeSet::new();
-        for error in every_variant() {
+        for error in &variants {
             let code = error.code();
             assert!(
                 seen.insert(code),
@@ -180,6 +189,12 @@ mod tests {
                 "`{code}` is not a snake_case identifier"
             );
         }
-        assert_eq!(seen.len(), 17, "a variant was added without a code");
+        // Comparing against the list rather than a literal: the point is that every variant
+        // appears here, and a hard-coded number only catches that after a second look.
+        assert_eq!(
+            seen.len(),
+            variants.len(),
+            "a variant was added without a code"
+        );
     }
 }

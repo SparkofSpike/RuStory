@@ -22,6 +22,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0011](0011-localisation.md) | Text has a name, and the engine resolves it | Accepted, implemented | How does a story ship in three languages? |
 | [0012](0012-gameplay-sees-the-story.md) | A gameplay system can see where the story is | Accepted, implemented | Does gameplay need read-only narrative state? |
 | [0013](0013-gameplay-draws-itself.md) | A gameplay system draws its own screen | Accepted, implemented | How does a board, a cursor or a bar get on screen? |
+| [0014](0014-two-ways-back.md) | Two ways back: save slots for players, a timeline for authors | Accepted, implemented (timeline) | How does someone return to an earlier state? |
 
 ## Status meanings
 
@@ -37,5 +38,7 @@ None of these are decided. Writing one is the first step before changing code.
 
 - **Pointer input**: a system can draw a board but cannot be told where the player clicked.
   Input is still `Confirm` and `Select { index }`. Needs an ADR before code.
+- **Persisting the editing timeline**: history is in memory only. A named checkpoint file is
+  the obvious next step; where it lives and how it interacts with git is undecided.
 - **Format evolution**: how a script migrates when the story format gains a DSL.
 - **WASM sandbox**: ADR 0005 is a proposal with no code behind it.

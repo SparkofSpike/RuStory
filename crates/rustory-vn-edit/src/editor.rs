@@ -38,6 +38,17 @@ pub struct HistoryEntry {
     pub label: String,
 }
 
+/// One point on the editor's timeline, as a history panel lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TimelinePoint {
+    /// 0 is the document as it was opened; `n` is the state after the nth operation.
+    pub index: usize,
+    /// What produced this state. Empty for the opening state, which no operation made.
+    pub label: String,
+    /// Whether this is where the editor is now.
+    pub current: bool,
+}
+
 /// A story plus its editing history.
 #[derive(Debug, Clone)]
 pub struct Editor {
@@ -290,6 +301,66 @@ impl Editor {
     #[must_use]
     pub fn problems(&self) -> Vec<String> {
         problems_of(self.story())
+    }
+
+    /// The timeline: every state this editor can jump to, oldest first.
+    ///
+    /// Index 0 is the document as it was opened; index `n` is the state after the nth
+    /// operation. States undone are included — a creator who has stepped back five times
+    /// wants to see what is still ahead — so the list can be longer than the undo stack.
+    ///
+    /// Once [`HISTORY_LIMIT`] is reached the oldest states are dropped, and index 0 becomes
+    /// the oldest state still reachable rather than the file as it was opened. A panel that
+    /// says "step 3" is telling the truth about what it can do, not about the session's
+    /// entire past.
+    #[must_use]
+    pub fn timeline(&self) -> Vec<TimelinePoint> {
+        let mut points = Vec::with_capacity(self.past.len() + self.future.len() + 1);
+        points.push(TimelinePoint {
+            index: 0,
+            label: String::new(),
+            current: self.past.is_empty(),
+        });
+        for (n, entry) in self.past_labels.iter().enumerate() {
+            points.push(TimelinePoint {
+                index: n + 1,
+                label: entry.label.clone(),
+                current: n + 1 == self.past.len(),
+            });
+        }
+        for (n, (_, entry)) in self.future.iter().rev().enumerate() {
+            points.push(TimelinePoint {
+                index: self.past.len() + 1 + n,
+                label: entry.label.clone(),
+                current: false,
+            });
+        }
+        points
+    }
+
+    /// Where the editor is on its timeline, for highlighting the current row.
+    #[must_use]
+    pub fn timeline_position(&self) -> usize {
+        self.past.len()
+    }
+
+    /// Jump to a point on the timeline.
+    ///
+    /// This is [`Editor::undo`] or [`Editor::redo`] repeated, not a second history mechanism.
+    /// One stack of states, one way along it — which is why a jump cannot disagree with the
+    /// undo button about what the document contains.
+    pub fn goto(&mut self, index: usize) -> Result<(), EditError> {
+        let reachable = self.past.len() + self.future.len();
+        if index > reachable {
+            return Err(EditError::NoSuchPoint { index, reachable });
+        }
+        while self.past.len() > index {
+            self.undo();
+        }
+        while self.past.len() < index {
+            self.redo();
+        }
+        Ok(())
     }
 }
 

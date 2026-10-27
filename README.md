@@ -57,9 +57,9 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 317 tests, including offscreen GPU renders, colour round-trips, and 73 in `rustory-vn-edit`
+- 325 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
 
-Not yet: rollback history, WASM plugins, pointer input for gameplay. Those have ADRs
+Not yet: player rollback history, WASM plugins, pointer input for gameplay. Those have ADRs
 describing the plan, not code pretending to be one.
 
 ## Editor
@@ -75,6 +75,12 @@ Every shortcut is also on screen: **F1** (or the `?` button) opens the list, bec
 nobody can find is not a shortcut.
 
 ![Keys and controls](shots/editor-help.png)
+
+**Ctrl+H** opens the history panel: every state the tab can jump to, labelled with the operation
+that produced it. Clicking a row is undo-or-redo repeated, so the panel and the keyboard cannot
+disagree about what the document contains, and the file on disk stays untouched until you save.
+This is the author's counterpart to a player's save slots — one returns to a place in the
+story, the other to a place in the work.
 
 Several stories can be open at once. Each tab carries its own selection, filter, preview path,
 undo history and recovery draft; the window keeps the renderer, the status line and the recent
@@ -244,7 +250,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 317 tests; render tests skip without a GPU
+cargo test --workspace      # 325 tests; render tests skip without a GPU
 cargo run -p rustory-vn -- probe
 ```
 

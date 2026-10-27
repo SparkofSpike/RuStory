@@ -81,6 +81,9 @@ pub struct EditorApp {
 
     /// Whether the shortcut sheet is open.
     pub show_help: bool,
+
+    /// Whether the history panel is open.
+    pub show_history: bool,
 }
 
 /// What a close decision was about, so the caller knows what to say afterwards.
@@ -104,6 +107,7 @@ impl EditorApp {
             close_confirmed: false,
             recent: RecentFiles::load(),
             show_help: false,
+            show_history: false,
         };
 
         // A list that mentions files deleted outside the editor is worse than a short
@@ -585,9 +589,10 @@ impl eframe::App for EditorApp {
                 command && !shift && input.key_pressed(egui::Key::N),
                 input.key_pressed(egui::Key::F1),
                 command && !shift && !editing_text && input.key_pressed(egui::Key::W),
+                command && input.key_pressed(egui::Key::H),
             )
         });
-        let (undo, redo, save_as, save, open, new, help, close) = shortcuts;
+        let (undo, redo, save_as, save, open, new, help, close, history) = shortcuts;
 
         if undo {
             self.undo();
@@ -609,6 +614,9 @@ impl eframe::App for EditorApp {
         }
         if help {
             self.show_help = !self.show_help;
+        }
+        if history {
+            self.show_history = !self.show_history;
         }
         if close {
             self.pending_actions.push(UiAction::Close(self.active));
@@ -633,6 +641,7 @@ impl eframe::App for EditorApp {
         panels::inspector(self, ui);
         panels::beat_editor(self, ui);
         panels::help_window(self, ui);
+        panels::history_window(self, ui);
 
         // Everything the panels asked for lands here, after layout, so the story is
         // not borrowed while it is being changed.
@@ -663,6 +672,7 @@ mod tests {
             close_confirmed: false,
             recent: RecentFiles::default(),
             show_help: false,
+            show_history: false,
         };
         for _ in 0..count {
             let editor = Editor::new_story(None);

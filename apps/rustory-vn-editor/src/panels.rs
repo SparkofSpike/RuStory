@@ -142,6 +142,23 @@ pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
                 app.redo_pending();
             }
 
+            // The count is shown rather than hidden behind a plain button: "12" tells an
+            // author whether the thing they are looking for is still in reach.
+            let history_points = app
+                .tabs
+                .get(app.active)
+                .map_or(0, |tab| tab.editor.timeline().len());
+            if ui
+                .add_enabled(
+                    has_doc && history_points > 1,
+                    egui::Button::new(format!("History ({history_points})")),
+                )
+                .on_hover_text("Every state this tab can jump to (Ctrl+H)")
+                .clicked()
+            {
+                app.show_history = !app.show_history;
+            }
+
             // A shortcut nobody can find is not a shortcut. The list is short enough to show
             // in full, which beats a tooltip per button.
             if ui
@@ -1545,6 +1562,7 @@ pub fn help_window(app: &mut EditorApp, ui: &mut egui::Ui) {
             row("Ctrl+W", "Close the tab");
             row("Ctrl+Z", "Undo");
             row("Ctrl+Y", "Redo");
+            row("Ctrl+H", "History: jump to any earlier state");
             row("F1", "This list");
 
             ui.separator();
@@ -1575,6 +1593,89 @@ pub fn help_window(app: &mut EditorApp, ui: &mut egui::Ui) {
     // The window's own close button has to be honoured as well as the toggle.
     if !open {
         app.show_help = false;
+    }
+}
+
+/// The history panel: every state the active tab can jump to, oldest first.
+///
+/// This is the creator's half of "save and load". A player saves a position in a story; an
+/// author needs to get back to a position in their own work — the version before the rewrite,
+/// the one where the branch still made sense. The editor has kept the states for undo since
+/// the first commit; this makes them visible and addressable instead of reachable only by
+/// pressing Ctrl+Z the right number of times.
+///
+/// A jump is [`Editor::goto`](rustory_vn_edit::Editor::goto), which is undo or redo repeated.
+/// The panel adds no history of its own, so it cannot disagree with the shortcut about what the
+/// document contains.
+pub fn history_window(app: &mut EditorApp, ui: &mut egui::Ui) {
+    if !app.show_history {
+        return;
+    }
+
+    let mut open = true;
+    let mut jump_to: Option<usize> = None;
+
+    egui::Window::new("History")
+        .open(&mut open)
+        .default_width(380.0)
+        .default_height(420.0)
+        .resizable(true)
+        .show(ui.ctx(), |ui| {
+            let Some(tab) = app.active_tab_mut() else {
+                ui.label("No document open.");
+                return;
+            };
+
+            let points = tab.editor.timeline();
+            ui.label(format!(
+                "{} point(s). Click one to go there; the file is untouched until you save.",
+                points.len()
+            ));
+            ui.separator();
+
+            egui::ScrollArea::vertical()
+                .max_height(320.0)
+                .show(ui, |ui| {
+                    for point in &points {
+                        let label = if point.label.is_empty() {
+                            "(opened)".to_owned()
+                        } else {
+                            point.label.clone()
+                        };
+                        let mut text = egui::RichText::new(format!("{:>3}  {label}", point.index));
+                        if point.current {
+                            text = text.strong();
+                        }
+                        if ui.selectable_label(point.current, text).clicked() && !point.current {
+                            jump_to = Some(point.index);
+                        }
+                    }
+                });
+
+            if points.len() > 1 {
+                ui.separator();
+                ui.label(
+                    egui::RichText::new("A jump counts as an unsaved change; Ctrl+S writes it.")
+                        .small(),
+                );
+            }
+        });
+
+    // The window's own close button has to be honoured as well as the toggle.
+    if !open {
+        app.show_history = false;
+    }
+
+    if let Some(index) = jump_to
+        && let Some(tab) = app.active_tab_mut()
+    {
+        match tab.editor.goto(index) {
+            Ok(()) => app.status = format!("Moved to history point {index}"),
+            Err(err) => {
+                app.status = err.to_string();
+                app.status_is_error = true;
+            }
+        }
     }
 }
 
