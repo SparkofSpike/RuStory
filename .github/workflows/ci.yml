@@ -81,6 +81,17 @@ jobs:
       # Every command below appears in README.md or in `--help`. A documented command that
       # does not run is a lie the reader discovers on their own machine, which is the worst
       # place to find one.
+      - name: The licence copies match the workspace root
+        # A crate archive that names a licence it does not contain is a packaging defect. A
+        # copy that silently fell behind the root is the same defect with better intentions,
+        # and it is invisible until someone opens the published tarball.
+        run: |
+          for d in crates/* apps/*; do
+            cmp LICENSE-MIT "$d/LICENSE-MIT" || { echo "$d/LICENSE-MIT differs"; exit 1; }
+            cmp LICENSE-APACHE "$d/LICENSE-APACHE" || { echo "$d/LICENSE-APACHE differs"; exit 1; }
+          done
+          echo "licence copies match"
+
       - name: Validate the demo story
         run: cargo run -q -p rustory-vn -- check stories/demo.ron
 

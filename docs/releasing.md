@@ -12,16 +12,14 @@ rediscover under pressure.
 [ADR 0016](adr/0016-three-names.md); the practical consequence for a publish is that every
 package name carries the `-vn` suffix and every documented command does not.
 
-**The licence texts are not in the crate directories.** `license = "MIT OR Apache-2.0"` is a
-correct SPDX declaration and it is what crates.io displays, but the convention — and the
-expectation of anyone vendoring the source — is that a crate archive contains the texts it
-claims to be licensed under. Cargo looks for `LICENSE-MIT` / `LICENSE-APACHE` beside each
-`Cargo.toml`, and the copies live at the workspace root. Either symlink them into each crate
-directory before packaging or accept an archive that names a licence it does not include.
+**Licence texts are in every crate directory.** `LICENSE-MIT` and `LICENSE-APACHE` are copied
+into each of the eight library crates and both apps, because Cargo looks for them beside each
+`Cargo.toml` and a crate archive that names a licence it does not contain is a defect. The copies
+are byte-identical to the workspace-root files; a check below fails if they drift.
 
-**The applications are not meant to be published.** `rustory` and `rustory-vn-editor` are
-binaries for this repository's users; the crates worth publishing are the libraries. Add
-`publish = false` to the two apps rather than relying on memory.
+**The applications are not meant to be published.** `rustory` and `rustory-editor` are binaries
+for this repository's users; the crates worth publishing are the libraries. Both already carry
+`publish = false`, so a workspace-wide `cargo publish` skips them.
 
 ## The order that works
 
@@ -31,11 +29,18 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets
 cargo test --workspace
 
-# 2. What would actually go in the archive. Read it; a missing file here is a file users
+# 2. The licence copies have not drifted from the root.
+#    (A crate archive naming a licence it does not contain is a packaging defect, and a
+#    copy that silently fell behind is the same defect with better intentions.)
+for d in crates/* apps/*; do
+  cmp LICENSE-MIT "$d/LICENSE-MIT" && cmp LICENSE-APACHE "$d/LICENSE-APACHE"
+done
+
+# 3. What would actually go in the archive. Read it; a missing file here is a file users
 #    will not get.
 cargo package -p rustory-vn-core --list
 
-# 3. A full build of the packaged crate, which catches a path that works in the workspace
+# 4. A full build of the packaged crate, which catches a path that works in the workspace
 #    and not outside it.
 cargo package -p rustory-vn-core
 ```
@@ -60,8 +65,11 @@ not speculatively.
 
 ## What a release needs that the repository does not have
 
-- A changelog. `git log` is not one; a reader wants to know what changed for them.
 - A `docs.rs` check. Documentation that fails to build on docs.rs fails for a reason that
   does not appear locally, usually a missing `--all-features`.
 - A named maintainer. `Copyright (c) 2026 RuStory contributors` is honest and also means no
   single person answers a security report.
+
+`CHANGELOG.md` exists now, with an `[Unreleased]` section. It stops being honest the moment a
+change lands without a line there, which is the reason it was started before the first release
+rather than after.

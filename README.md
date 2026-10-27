@@ -405,7 +405,8 @@ See [`docs/contributing.md`](docs/contributing.md): the build and test commands,
 rules that are not negotiable, the commit convention, and how to add a gameplay or change
 an architectural decision.
 
-Commits follow Conventional Commits in English, one logical change per commit.
+Commits follow Conventional Commits in English, one logical change per commit. What changed for
+a user goes in [`CHANGELOG.md`](CHANGELOG.md) under `[Unreleased]`.
 
 ## License
 
