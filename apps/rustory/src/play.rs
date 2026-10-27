@@ -31,6 +31,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut assets = PathBuf::from("assets");
     let mut save_path = PathBuf::from("save.ron");
     let mut font = None;
+    let mut mute = false;
 
     let mut index = 0;
     while index < args.len() {
@@ -47,6 +48,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 index += 1;
                 font = Some(args.get(index).ok_or("--font needs a family name")?.clone());
             }
+            "--mute" => mute = true,
             other if other.starts_with("--") => return Err(format!("unknown option `{other}`")),
             other => {
                 if story_path.is_some() {
@@ -66,7 +68,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Continuous redraw: the typewriter needs frames even when nothing moves.
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut player = Player::new(narrative, assets, save_path, font);
+    let mut player = Player::new(narrative, assets, save_path, font, mute);
     event_loop
         .run_app(&mut player)
         .map_err(|err| err.to_string())
@@ -98,6 +100,10 @@ struct Player {
     window: Option<Arc<Window>>,
     gpu: Option<Gpu>,
 
+    /// Sound output. Silent when there is no device, which is a degraded run rather than
+    /// a failed one.
+    audio: crate::audio::Audio,
+
     last_tick: Instant,
     /// Inputs collected since the previous frame, handed to a gameplay system.
     pending_inputs: Vec<GameplayInput>,
@@ -109,7 +115,25 @@ impl Player {
         assets: PathBuf,
         save_path: PathBuf,
         font: Option<String>,
+        mute: bool,
     ) -> Self {
+        // Audio lives beside the art, under its own folder: `<assets>/audio/`.
+        let audio_dir = assets.join("audio");
+        let audio = if mute {
+            crate::audio::Audio::silent(&audio_dir)
+        } else {
+            crate::audio::Audio::new(&audio_dir)
+        };
+        // Said once at startup rather than silently: a developer wondering why the game is
+        // quiet has the answer in the terminal instead of in a bug report.
+        match &audio.unavailable {
+            Some(reason) => eprintln!("rustory: {reason}"),
+            None => println!(
+                "audio: {} file(s) in {}",
+                audio.library_size(),
+                audio_dir.display()
+            ),
+        }
         Self {
             narrative,
             registry: driver::default_registry(),
@@ -120,6 +144,7 @@ impl Player {
             notice_until: None,
             window: None,
             gpu: None,
+            audio,
             last_tick: Instant::now(),
             pending_inputs: Vec::new(),
         }
@@ -169,6 +194,14 @@ impl Player {
             self.pending_inputs.clear();
             Ok(())
         })();
+
+        if outcome.is_ok() {
+            // The restored scene has a track, but nothing "changed": the events for this
+            // position were consumed long ago. Ask the narrative what should be playing
+            // rather than waiting for the next `Music` beat.
+            let track = self.narrative.music().map(str::to_owned);
+            self.audio.sync_to(track.as_deref());
+        }
 
         self.set_notice(match outcome {
             Ok(()) => format!("Loaded {}", self.save_path.display()),
@@ -294,6 +327,16 @@ impl Player {
             // the next scene.
             self.pending_inputs.clear();
         }
+
+        // Drain before ticking: the events describe what this frame decided, and the
+        // director needs them before it advances the fades those events started.
+        //
+        // This is the first real consumer of `NarrativeEvent`. The queue existed and
+        // nothing read it, which is the difference between a design that supports a
+        // feature and one that has it.
+        let events = self.narrative.take_events();
+        self.audio.handle(&events);
+        self.audio.tick(dt_ms);
 
         let Some(gpu) = self.gpu.as_mut() else {
             return;

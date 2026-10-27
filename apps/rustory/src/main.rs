@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 mod assets;
+mod audio;
 mod driver;
 mod edit_cli;
 mod play;
@@ -119,6 +120,25 @@ fn probe() -> Result<(), String> {
         Err(err) => println!("gpu:  UNAVAILABLE — {err}"),
     }
     println!("text: {}", rustory_render::probe_text());
+
+    // Audio is probed with the same "say what is missing" rule as the GPU: a silent game
+    // should be explainable without reading the source.
+    match rodio::DeviceSinkBuilder::open_default_sink() {
+        Ok(mut device) => {
+            // Probing is not playing: dropping this sink at the end of the command would
+            // otherwise print rodio's "audio will stop" warning for a stream that never
+            // carried a sound.
+            device.log_on_drop(false);
+            println!("audio: device available");
+        }
+        Err(err) => println!("audio: UNAVAILABLE — {err}"),
+    }
+    let bank = audio::AudioBank::load(Path::new("assets/audio"));
+    if bank.len() == 0 {
+        println!("audio files: none in assets/audio (the story can still be silent)");
+    } else {
+        println!("audio files: {} in assets/audio", bank.len());
+    }
 
     // Report project fonts as well as system ones: "the font did not apply" is
     // otherwise a guess about whether the file loaded or the name was wrong.
