@@ -57,9 +57,9 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 359 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
+- 369 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
 
-Not yet: player rollback history, pointer input for gameplay. Those have ADRs describing the
+Not yet: player rollback history, a hover or drag gesture. Those have ADRs describing the
 plan, not code pretending to be one.
 
 ## Editor
@@ -251,7 +251,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 359 tests; render tests skip without a GPU
+cargo test --workspace      # 369 tests; render tests skip without a GPU
 cargo run -p rustory-vn -- probe
 ```
 

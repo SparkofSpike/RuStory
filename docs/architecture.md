@@ -232,10 +232,10 @@ GPU is an environment fact, not a regression.
 - **No audio mixing.** One music track plus one-shot effects, both driven by beats. Layered
   ambience needs a mixer, and a mixer written before a story asks for one is speculative. See
   ADR 0009.
-- **No pointer input.** A system receives `Confirm` and `Select { index }` and nothing else. A
-  countdown and a quiz fit; a drag, a board cursor or a click on a thing rather than a numbered
-  option does not. The view channel (ADR 0013) can already draw what such a system would need;
-  the input side is the remaining half.
+- **No hover, and no drag gesture.** Pointer input is `Pressed` and `Released` in the design box
+  (ADR 0019), so a button, a board and a drag-by-remembering-the-press all work. A system that
+  needs to know where the pointer is *while* it is not pressed — a tooltip, a cursor that follows
+  the mouse — needs a third phase, and adding it is an ADR rather than a tweak.
 - **`--advance` counts interactions, not positions.** One interaction can span two
   states (finishing a line, then advancing a beat), and inside a gameplay system it
   plays the whole thing to completion, always choosing the first option. `shot --at

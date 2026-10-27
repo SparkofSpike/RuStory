@@ -68,7 +68,7 @@ pub use error::CoreError;
 pub use event::{NarrativeEvent, TickReport};
 pub use gameplay::{
     ChoiceMade, GameplayContext, GameplayInput, GameplayRegistry, GameplaySystem,
-    NarrativeSnapshot, Stats, decode_state, encode_state,
+    NarrativeSnapshot, PointerPhase, Stats, decode_state, encode_state,
 };
 pub use ids::{ActorId, NodeId, OutcomeKey, SystemId};
 pub use narrative::{LineView, Mode, Narrative};
@@ -84,8 +84,8 @@ pub mod prelude {
         ActorId, Align, Beat, Choice, ChoiceMade, CoreError, Element, Exit, GameplayContext,
         GameplayInput, GameplayRegistry, GameplaySave, GameplaySpec, GameplaySystem, GameplayView,
         LineView, LocaleTable, Locales, MissingText, Mode, Narrative, NarrativeEvent,
-        NarrativeSnapshot, Node, NodeId, OutcomeKey, SAVE_VERSION, SaveState, Slot, Stage, Stats,
-        Story, StoryMeta, SystemId, Text, TickReport, Tone, VIEW_HEIGHT, VIEW_WIDTH, ViewRect,
-        decode_state, encode_state,
+        NarrativeSnapshot, Node, NodeId, OutcomeKey, PointerPhase, SAVE_VERSION, SaveState, Slot,
+        Stage, Stats, Story, StoryMeta, SystemId, Text, TickReport, Tone, VIEW_HEIGHT, VIEW_WIDTH,
+        ViewRect, decode_state, encode_state,
     };
 }

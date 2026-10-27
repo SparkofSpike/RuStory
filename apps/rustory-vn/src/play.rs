@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-use rustory_vn_core::{GameplayInput, GameplayRegistry, Mode, Narrative};
+use rustory_vn_core::{GameplayInput, GameplayRegistry, Mode, Narrative, PointerPhase};
 use rustory_vn_render::{Renderer, TARGET_FORMAT};
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
@@ -155,6 +155,14 @@ struct Player {
     last_tick: Instant,
     /// Inputs collected since the previous frame, handed to a gameplay system.
     pending_inputs: Vec<GameplayInput>,
+    /// The pointer in the design box, updated on every move.
+    ///
+    /// `None` until the pointer has been inside the window at least once. A default `(0, 0)` would
+    /// be a real position — the top-left corner — and a system that treated it as a click would
+    /// act on something the player never pointed at.
+    cursor_design: Option<(f32, f32)>,
+    /// The window's current size, for converting a pointer position.
+    window_size: (u32, u32),
 }
 
 impl Player {
@@ -196,6 +204,8 @@ impl Player {
             audio,
             last_tick: Instant::now(),
             pending_inputs: Vec::new(),
+            cursor_design: None,
+            window_size: (crate::scene::WIDTH, crate::scene::HEIGHT),
         }
     }
 
@@ -347,6 +357,7 @@ impl Player {
         gpu.config.height = height;
         gpu.surface.configure(gpu.renderer.device(), &gpu.config);
         gpu.renderer.resize(width, height);
+        self.window_size = (width, height);
     }
 
     /// Advance game state by `dt_ms` and draw.
@@ -430,12 +441,39 @@ impl Player {
     }
 
     fn on_confirm(&mut self) {
+        // A gameplay system that draws a pointer-driven screen gets the press too, so it can
+        // decide from a position rather than from "somewhere was clicked". Both arrive: the
+        // system ignores whichever it does not use, and a countdown that has always used
+        // `Confirm` keeps working unchanged.
         if matches!(self.narrative.mode(), Mode::Suspended { .. }) {
+            if let Some((x, y)) = self.cursor_design {
+                self.pending_inputs.push(GameplayInput::Pointer {
+                    x,
+                    y,
+                    phase: PointerPhase::Pressed,
+                });
+            }
             self.pending_inputs.push(GameplayInput::Confirm);
             return;
         }
         if let Err(err) = driver::click(&mut self.narrative, &mut self.registry) {
             eprintln!("rustory: {err}");
+        }
+    }
+
+    /// The release half, which only gameplay uses: outside a handover a click is already
+    /// complete when the button goes down, and waiting for the release would make the story feel
+    /// unresponsive.
+    fn on_release(&mut self) {
+        if !matches!(self.narrative.mode(), Mode::Suspended { .. }) {
+            return;
+        }
+        if let Some((x, y)) = self.cursor_design {
+            self.pending_inputs.push(GameplayInput::Pointer {
+                x,
+                y,
+                phase: PointerPhase::Released,
+            });
         }
     }
 
@@ -459,13 +497,57 @@ impl Player {
 /// The scene is authored at [`WIDTH`]x[`HEIGHT`]; a different window size should
 /// not rescale the dialogue into illegibility, so the frame is centred and
 /// painted over black bars instead.
+/// The logical box's mapping onto a window, and back.
+///
+/// One struct for both directions, because they are one transform. Computing the scale in two
+/// places is how a click lands slightly off the button it visibly hit, and that bug is nearly
+/// impossible to see by reading the code.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Viewport {
+    pub scale: f32,
+    pub offset_x: f32,
+    pub offset_y: f32,
+}
+
+impl Viewport {
+    /// The mapping for a window of `width` × `height`.
+    ///
+    /// `min` rather than `max`: the smaller ratio fits the whole design box and leaves bars,
+    /// which is the letterbox. `max` would crop, and a cropped dialogue box is a missing line.
+    #[must_use]
+    pub fn fit(width: u32, height: u32) -> Self {
+        let scale = (width as f32 / WIDTH as f32).min(height as f32 / HEIGHT as f32);
+        Self {
+            scale,
+            offset_x: (width as f32 - WIDTH as f32 * scale) / 2.0,
+            offset_y: (height as f32 - HEIGHT as f32 * scale) / 2.0,
+        }
+    }
+
+    /// A window point in the design box's coordinates.
+    ///
+    /// Clamped to the box, because a click on a letterbox bar is not a click on the scene and a
+    /// negative coordinate would put a system's hit test in a place nothing can be.
+    #[must_use]
+    pub fn to_design(self, x: f32, y: f32) -> (f32, f32) {
+        if self.scale <= 0.0 {
+            return (0.0, 0.0);
+        }
+        let x = (x - self.offset_x) / self.scale;
+        let y = (y - self.offset_y) / self.scale;
+        (x.clamp(0.0, WIDTH as f32), y.clamp(0.0, HEIGHT as f32))
+    }
+}
+
+/// Grow a frame authored in the design box to fill `width` × `height`.
 fn letterbox(frame: &mut rustory_vn_render::Frame) {
     if frame.width == WIDTH && frame.height == HEIGHT {
         return;
     }
-    let scale = (frame.width as f32 / WIDTH as f32).min(frame.height as f32 / HEIGHT as f32);
-    let offset_x = (frame.width as f32 - WIDTH as f32 * scale) / 2.0;
-    let offset_y = (frame.height as f32 - HEIGHT as f32 * scale) / 2.0;
+    let viewport = Viewport::fit(frame.width, frame.height);
+    let scale = viewport.scale;
+    let offset_x = viewport.offset_x;
+    let offset_y = viewport.offset_y;
 
     for quad in &mut frame.quads {
         quad.rect.x = quad.rect.x * scale + offset_x;
@@ -518,10 +600,20 @@ impl ApplicationHandler for Player {
             WindowEvent::Resized(size) => self.resize(size.width, size.height),
             WindowEvent::RedrawRequested => self.update_and_draw(),
             WindowEvent::MouseInput {
-                state: ElementState::Pressed,
+                state,
                 button: MouseButton::Left,
                 ..
-            } => self.on_confirm(),
+            } => match state {
+                ElementState::Pressed => self.on_confirm(),
+                ElementState::Released => self.on_release(),
+            },
+            // Kept so a press can be turned into a design-box position. The window may be any
+            // size and the box is fixed, so the conversion needs the same transform `letterbox`
+            // applies in the other direction.
+            WindowEvent::CursorMoved { position, .. } => {
+                let viewport = Viewport::fit(self.window_size.0, self.window_size.1);
+                self.cursor_design = Some(viewport.to_design(position.x as f32, position.y as f32));
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 if event.state != ElementState::Pressed {
                     return;
@@ -602,5 +694,57 @@ mod tests {
         assert!((rect.width - 2560.0).abs() < 0.01, "full width at 2x");
         assert!((rect.height - 1440.0).abs() < 0.01, "full height at 2x");
         assert!((rect.x).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_click_maps_back_to_the_rectangle_it_hit() {
+        // The property that matters: `letterbox` scales the box up to the window, and the pointer
+        // transform must undo exactly that. Anything else puts a click next to the button it
+        // visibly landed on, which is the kind of bug that reads as "the game feels wrong".
+        let mut frame = rustory_vn_render::Frame::new(1920, 1080);
+        frame.push_quad(rustory_vn_render::Quad::solid(
+            rustory_vn_render::Rect::new(240.0, 260.0, 360.0, 220.0),
+            rustory_vn_render::Rgba::rgb(255, 255, 255),
+        ));
+        letterbox(&mut frame);
+        let drawn = frame.quads[0].rect;
+
+        let viewport = Viewport::fit(1920, 1080);
+        let centre = viewport.to_design(drawn.x + drawn.width / 2.0, drawn.y + drawn.height / 2.0);
+
+        assert!((centre.0 - 420.0).abs() < 0.5, "got {centre:?}");
+        assert!((centre.1 - 370.0).abs() < 0.5, "got {centre:?}");
+    }
+
+    #[test]
+    fn a_click_in_the_letterbox_bar_is_clamped_into_the_box() {
+        // A window wider than 16:9 leaves bars at the sides (2000/1000 is 2.0, the box is 1.78).
+        // A click there is not a click on the scene, and a negative x would put a system's hit
+        // test where nothing can be.
+        let viewport = Viewport::fit(2000, 1000);
+        assert!(
+            viewport.offset_x > 0.0,
+            "this window must actually have side bars"
+        );
+        let (x, y) = viewport.to_design(5.0, 500.0);
+
+        assert_eq!(x, 0.0, "clamped to the left edge of the box");
+        assert!((0.0..=HEIGHT as f32).contains(&y));
+    }
+
+    #[test]
+    fn the_identity_viewport_maps_a_point_to_itself() {
+        let viewport = Viewport::fit(WIDTH, HEIGHT);
+        assert!((viewport.scale - 1.0).abs() < f32::EPSILON);
+        assert_eq!(viewport.to_design(640.0, 360.0), (640.0, 360.0));
+    }
+
+    #[test]
+    fn a_zero_sized_window_does_not_produce_nan_coordinates() {
+        // The window can be minimised. Dividing by a zero scale would hand a system `NaN`, and a
+        // hit test against `NaN` is false for every rectangle — silently, forever.
+        let viewport = Viewport::fit(0, 0);
+        let (x, y) = viewport.to_design(10.0, 10.0);
+        assert!(x.is_finite() && y.is_finite(), "got ({x}, {y})");
     }
 }

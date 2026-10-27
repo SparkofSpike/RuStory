@@ -1,7 +1,7 @@
 [package]
 name = "rustory-wasm-guest-example"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 publish = false
 description = "Example RuStory gameplay module: a guided slot machine, written against the documented ABI."
 

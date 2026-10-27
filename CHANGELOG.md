@@ -35,6 +35,9 @@ SemVer once there is a published version to be compatible with.
   `--plugin name=path`, the story's own `plugins` map, or `plugins/<name>.wasm` beside the story
   or one level up — in that order. `rustory check` reports which source supplied each one.
   `examples/wasm-guest` is a working 1.6 KB module written against the ABI by hand.
+- **Pointer input.** `GameplayInput::Pointer { x, y, phase }` in the view's design box, with
+  `Pressed` and `Released`. A button reads the press, a drag remembers it and decides on the
+  release. No hover: nothing shipped needs it.
 - **`rustory-editor`'s history panel** on `Ctrl+H`: every state the open tab can jump to, labelled
   with the operation that produced it.
 

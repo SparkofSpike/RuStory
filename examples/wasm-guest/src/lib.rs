@@ -52,7 +52,7 @@ static mut ELAPSED_MS: u32 = 0;
 ///
 /// # Safety
 /// Called by the host with a length it then fills. The pointer stays valid until `dealloc`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn alloc(len: i32) -> i32 {
     let len = len.max(0) as usize;
     if len > HEAP {
@@ -67,15 +67,15 @@ pub extern "C" fn alloc(len: i32) -> i32 {
 
 const HEAP_BASE: usize = 1024;
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn dealloc(_ptr: i32, _len: i32) {}
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn result_ptr() -> i32 {
     RESULT as i32
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn result_len() -> i32 {
     // Safety: written by `step` and `view` before the host reads it.
     unsafe { RESULT_LEN as i32 }
@@ -86,7 +86,8 @@ pub extern "C" fn result_len() -> i32 {
 /// # Safety
 /// `ptr` and `len` come from the host's `alloc`, so they name a range inside this module.
 unsafe fn bytes<'a>(ptr: i32, len: i32) -> &'a [u8] {
-    core::slice::from_raw_parts(ptr as *const u8, len.max(0) as usize)
+    // Safety: inherited from the caller's contract, stated above.
+    unsafe { core::slice::from_raw_parts(ptr as *const u8, len.max(0) as usize) }
 }
 
 /// Find `needle` in `haystack`, returning the index just past it.
@@ -130,7 +131,7 @@ fn write(bytes: &[u8]) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn begin(ptr: i32, len: i32) -> i32 {
     // Safety: the host allocated this range.
     let payload = unsafe { bytes(ptr, len) };
@@ -149,7 +150,7 @@ pub extern "C" fn begin(ptr: i32, len: i32) -> i32 {
     0
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn step(dt: i32, ptr: i32, len: i32) -> i32 {
     // Safety: the host allocated this range.
     let inputs = unsafe { bytes(ptr, len) };
@@ -167,12 +168,72 @@ pub extern "C" fn step(dt: i32, ptr: i32, len: i32) -> i32 {
         return 1;
     }
 
+    // A pointer press inside a door card picks that door. This is what the input channel was
+    // widened for: without it the player could only answer with a number key, and a board or a
+    // cursor would be drawable but unusable.
+    //
+    // Only `Pressed` acts: a drag would remember the press and decide on the release, and this
+    // system has nothing to drag.
+    if find(inputs, b"Pressed").is_some()
+        && let Some(x) = real_after(inputs, b"x")
+        && let Some(y) = real_after(inputs, b"y")
+    {
+        let door = if (240.0..600.0).contains(&x) && (260.0..480.0).contains(&y) {
+            Some(0)
+        } else if (680.0..1040.0).contains(&x) && (260.0..480.0).contains(&y) {
+            Some(1)
+        } else {
+            // A press outside both cards is not an answer: a player clicking the background has
+            // not chosen a door.
+            None
+        };
+
+        if let Some(index) = door {
+            unsafe {
+                PICKED = index;
+            }
+            let win = index == unsafe { CORRECT };
+            write(if win { b"won" } else { b"lost" });
+            return 1;
+        }
+    }
+
     // Nothing picked: keep control. The clock running out is the host's business in a real
     // system; here it just makes the bar move.
     0
 }
 
-#[no_mangle]
+/// Parse the number after `needle` as a real, however the payload spelled it.
+///
+/// RON writes `1.0` for an `f32` and `1` for an `i32`, and a hit test should not care which.
+fn real_after(haystack: &[u8], needle: &[u8]) -> Option<f32> {
+    let start = find(haystack, needle)?;
+    let mut at = start;
+    while at < haystack.len() && (haystack[at] == b' ' || haystack[at] == b':') {
+        at += 1;
+    }
+
+    let mut value = 0.0f32;
+    let mut seen = false;
+    while at < haystack.len() && haystack[at].is_ascii_digit() {
+        value = value * 10.0 + f32::from(haystack[at] - b'0');
+        at += 1;
+        seen = true;
+    }
+    if at < haystack.len() && haystack[at] == b'.' {
+        at += 1;
+        let mut scale = 0.1f32;
+        while at < haystack.len() && haystack[at].is_ascii_digit() {
+            value += f32::from(haystack[at] - b'0') * scale;
+            scale *= 0.1;
+            at += 1;
+            seen = true;
+        }
+    }
+    seen.then_some(value)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn cancel() {
     unsafe {
         ROUND = 0;
@@ -186,7 +247,7 @@ pub extern "C" fn cancel() {
 ///
 /// Written by hand as RON because a guest that pulled in `serde` would be a different example:
 /// this one is about the boundary, and every dependency would blur whose cost is whose.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn view() -> i32 {
     write(b"(elements:[\
 Text(text:\"Two doors. One opens.\",rect:(x:140.0,y:80.0,width:1000.0,height:60.0),size:40.0,tone:Text,align:Center),\

@@ -43,7 +43,7 @@ This is **everything** `step` can reach:
 ```rust
 pub struct GameplayContext<'a> {
     pub dt_ms: u32,
-    pub inputs: &'a [GameplayInput],        // Confirm | Select { index }
+    pub inputs: &'a [GameplayInput],        // Confirm | Select { index } | Pointer
     pub stats: &'a mut Stats,               // BTreeMap<String, i32>, writable
     pub narrative: &'a NarrativeSnapshot,   // read-only, see below
 }
@@ -107,11 +107,27 @@ case.
 engine lives. Four is what two shipped systems and a documented example actually need; a fifth
 needs a system that cannot work without it.
 
-**What a view cannot do.** Draw outside its own rectangles, load a font, name a colour, or
-react to a pointer. The first three are decisions that belong to the project, not to a
-rule. The last is the next gap: input today is `Confirm` and `Select { index }`, enough for a
-countdown and a quiz, not enough for a drag. When a system needs a pointer, that is an ADR, not
-a workaround in `Stats`.
+**What a view cannot do.** Draw outside its own rectangles, load a font, name a colour, or capture
+input. The first three are decisions that belong to the project, not to a rule. Input arrives
+through `GameplayInput`, not through the view:
+
+```rust
+pub enum GameplayInput {
+    Confirm,                                          // any click, for a menu
+    Select { index: usize },                          // a numbered option
+    Pointer { x: f32, y: f32, phase: PointerPhase },  // where, in the design box
+}
+```
+
+`PointerPhase` is `Pressed` or `Released`, and the coordinates are in the same 1280×720 box the
+view uses — the app maps window pixels to it, so a resized window cannot change the rules. A
+button reads `Pressed`; a drag remembers `Pressed` and decides on `Released`. There is no `Hover`
+and no `Moved`: a system that needs the pointer position *while* it is not pressed needs an ADR,
+not a workaround in `Stats`.
+
+On a press inside a handover the app sends **both** `Pointer` and `Confirm`. A countdown that
+treats any input as the answer keeps working; a board that only looks at `Pointer` cannot be
+answered twice.
 
 Two front-ends draw views — the player and the editor's preview — and both call
 `paint_gameplay_view`, so a change to how a `Bar` looks cannot land in one and not the other.

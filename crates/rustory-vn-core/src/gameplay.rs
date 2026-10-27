@@ -73,12 +73,37 @@ impl Stats {
 ///
 /// Gameplay systems must not care whether input came from a mouse, a key or a
 /// network peer, so they receive this instead of platform events.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum GameplayInput {
     /// The player clicked, tapped or pressed confirm.
+    ///
+    /// What "clicked" means depends on what the system drew: a board can treat it as "somewhere",
+    /// a menu as "the highlighted one". It carries no position, because the two systems that
+    /// shipped before pointer input existed would have to ignore a field they cannot use.
     Confirm,
     /// The player chose option `index` from whatever the system presented.
     Select { index: usize },
+    /// A pointer press or release, in the view's 1280×720 design box.
+    ///
+    /// Design-box coordinates rather than the window's, for the same reason the view is laid out
+    /// in that box: a resized window must not change the rules. The app scales one to the other.
+    ///
+    /// Two phases and no hover. A press and a release are what a button, a drag and a board
+    /// placement all need; hover is a per-frame event stream with a much higher rate, and no
+    /// shipped system needs it. Adding `Hover` later is additive; adding it now would be an
+    /// untested third phase every system had to switch on.
+    Pointer { x: f32, y: f32, phase: PointerPhase },
+}
+
+/// Which half of a click arrived.
+///
+/// A drag is `Pressed` at the start point, then `Released` at the end: the system remembers the
+/// first and decides on the second. There is no `Moved`, because a drag that needs intermediate
+/// positions needs `Hover` first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PointerPhase {
+    Pressed,
+    Released,
 }
 
 /// What a gameplay system may know about the story around it.
