@@ -15,7 +15,7 @@ project has no soundtrack. Three questions had to be answered before a line of c
    host infers it from what changed)?
 2. **What is remembered?** If the player saves mid-scene and resumes, does the music come
    back?
-3. **Which crate owns it?** `rustory-core` must run with no device, no window and no GPU,
+3. **Which crate owns it?** `rustory-vn-core` must run with no device, no window and no GPU,
    or its tests stop being usable on a build machine.
 
 The third question constrained the first two: anything the core has to *do* with audio must
@@ -87,12 +87,12 @@ also the path that needs no timer at all.
 
 ## Where the pieces live
 
-- **`rustory-core`** owns the beats, the events and the track-as-state. It never opens a
+- **`rustory-vn-core`** owns the beats, the events and the track-as-state. It never opens a
   device; its tests run anywhere.
-- **`rustory-audio`** owns the fade state machine (`MusicDirector`) and nothing else. No
+- **`rustory-vn-audio`** owns the fade state machine (`MusicDirector`) and nothing else. No
   device, no decoding, no file paths. Every behaviour is a pure function of events and
   elapsed milliseconds, which is why it has nine tests that run in microseconds.
-- **The host** (`apps/rustory`) owns the device, the decoder and the file lookup. It is the
+- **The host** (`apps/rustory-vn`) owns the device, the decoder and the file lookup. It is the
   only place that knows `rodio` exists.
 
 That layering is the same rule as ADR 0001: the engine decides, the platform layer carries
@@ -118,14 +118,14 @@ trade a degraded game for no game.
 
 ## Verification
 
-- `crates/rustory-core/tests/narrative.rs` — a music cue sets the track, stopping is also a
+- `crates/rustory-vn-core/tests/narrative.rs` — a music cue sets the track, stopping is also a
   cue, a one-shot leaves no state behind, and neither blocks the player.
-- `crates/rustory-core/tests/save.rs` — the track survives save and load, and a save written
+- `crates/rustory-vn-core/tests/save.rs` — the track survives save and load, and a save written
   before audio existed still loads (the field is `serde(default)`).
-- `crates/rustory-audio/src/lib.rs` — nine tests over the fade machine: immediate cues,
+- `crates/rustory-vn-audio/src/lib.rs` — nine tests over the fade machine: immediate cues,
   fade-in timing, fade-out before a swap, re-cueing the same track doing nothing, a cue
   mid-fade retargeting, overshoot, and non-audio events being ignored.
-- `apps/rustory/src/assets.rs` — the placeholder sounds are generated as WAV by the same
+- `apps/rustory-vn/src/assets.rs` — the placeholder sounds are generated as WAV by the same
   command as the placeholder art, so the demo is audible from a fresh clone with no binary
   in the repository.
 - `rustory probe` reports the device and how many files were indexed.

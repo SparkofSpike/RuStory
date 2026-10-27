@@ -1,4 +1,4 @@
-﻿# Architecture
+# Architecture
 
 This document describes RuStory's layers, its data flow, and the invariants that
 break the design if violated. The **reasoning** behind each choice lives in
@@ -22,36 +22,36 @@ gameplay system holds any.
 ## 2. Crates and one dependency direction
 
 ```
-        apps/rustory-editor   (GUI: egui front-end)
-        apps/rustory          (CLI, player, agent interface)
-        ├── rustory-edit       (operations: shared by both front-ends)
-        ├── rustory-render
-        ├── rustory-audio      (fade state machine; no device)
-        ├── rustory-script
-        ├── rustory-gameplay-timer
-        ├── rustory-gameplay-quiz
-        └── rustory-core
+        apps/rustory-vn-editor   (GUI: egui front-end)
+        apps/rustory-vn          (CLI, player, agent interface)
+        ├── rustory-vn-edit       (operations: shared by both front-ends)
+        ├── rustory-vn-render
+        ├── rustory-vn-audio      (fade state machine; no device)
+        ├── rustory-vn-script
+        ├── rustory-vn-gameplay-timer
+        ├── rustory-vn-gameplay-quiz
+        └── rustory-vn-core
                 ▲
-   rustory-edit ─┘
-   rustory-render ─┘
-   rustory-audio ─┘
-   rustory-script ─┘
-   rustory-gameplay-timer ─┘
-   rustory-gameplay-quiz ──┘
+   rustory-vn-edit ─┘
+   rustory-vn-render ─┘
+   rustory-vn-audio ─┘
+   rustory-vn-script ─┘
+   rustory-vn-gameplay-timer ─┘
+   rustory-vn-gameplay-quiz ──┘
 ```
 
-**Every dependency points at `rustory-core`.** The core depends on nothing above
+**Every dependency points at `rustory-vn-core`.** The core depends on nothing above
 it. Cargo's dependency declarations enforce this, not discipline.
 
 | Crate | Owns | Must not do |
 |---|---|---|
-| `rustory-core` | Story model, state machine, gameplay contract | Render, open windows, touch the filesystem |
-| `rustory-script` | RON parsing, structural validation | Play, advance state |
-| `rustory-edit` | Document, typed operations, undo, validation | Know about a UI, or about pixels |
-| `rustory-render` | Draw list → pixels | Know what a story, actor or choice is |
-| `rustory-audio` | Fade and track-change state machine | Open a device, decode a file, or know what a scene is |
-| `rustory-gameplay-timer` | One concrete gameplay system | Read the stage or the story graph |
-| `rustory-gameplay-quiz` | A second one, with state no counter could hold | Ditto |
+| `rustory-vn-core` | Story model, state machine, gameplay contract | Render, open windows, touch the filesystem |
+| `rustory-vn-script` | RON parsing, structural validation | Play, advance state |
+| `rustory-vn-edit` | Document, typed operations, undo, validation | Know about a UI, or about pixels |
+| `rustory-vn-render` | Draw list → pixels | Know what a story, actor or choice is |
+| `rustory-vn-audio` | Fade and track-change state machine | Open a device, decode a file, or know what a scene is |
+| `rustory-vn-gameplay-timer` | One concrete gameplay system | Read the stage or the story graph |
+| `rustory-vn-gameplay-quiz` | A second one, with state no counter could hold | Ditto |
 
 ---
 
@@ -111,7 +111,7 @@ replaying node-entry events would redraw a scene the player is already looking a
 Each of these, if broken, breaks a promise the architecture makes. Write an ADR
 before changing one.
 
-1. **`rustory-core` depends on no rendering or window code.**
+1. **`rustory-vn-core` depends on no rendering or window code.**
    Break this and the core can no longer be tested without a GPU, which raises
    the cost of every test by an order of magnitude.
 
@@ -119,7 +119,7 @@ before changing one.
    It receives `GameplayContext { dt_ms, inputs, &mut Stats }` and nothing else.
    Need more? Change the contract, and write the ADR first.
 
-3. **Adding a gameplay system does not modify `rustory-core`.**
+3. **Adding a gameplay system does not modify `rustory-vn-core`.**
    If it does, the contract is wrong. Fix the contract.
 
 4. **Referential integrity is checked at load time, not at use time.**
@@ -127,7 +127,7 @@ before changing one.
    first frame.
 
 5. **The renderer knows no game concepts.**
-   `Story`, `Actor` or `Choice` appearing in `rustory-render` is a leak. It knows
+   `Story`, `Actor` or `Choice` appearing in `rustory-vn-render` is a leak. It knows
    `Frame`, `Quad` and `TextItem`.
 
 6. **Typewriter text advances by grapheme cluster, never by `char`.**
@@ -144,7 +144,7 @@ before changing one.
 ## 5. Module map
 
 ```
-crates/rustory-core/src/
+crates/rustory-vn-core/src/
   ids.rs          NodeId / ActorId / SystemId / OutcomeKey (newtypes, so they cannot be mixed up)
   story.rs        Story / Node / Beat / Exit / Choice / GameplaySpec
   stage.rs        Stage (background + actors on screen); explicit fields, no dynamic component table
@@ -153,18 +153,18 @@ crates/rustory-core/src/
   gameplay.rs     GameplaySystem trait, GameplayContext, Stats, Registry
   error.rs        CoreError
 
-crates/rustory-script/src/lib.rs
+crates/rustory-vn-script/src/lib.rs
   parse_story / load_story; errors carry line and column
 
-crates/rustory-render/src/
+crates/rustory-vn-render/src/
   frame.rs        Frame / Quad / TextItem / Rect / Rgba / Uv
   image.rs        Rgba8Image (PNG read and write, solid fills, gradients)
   renderer.rs     wgpu pipeline, texture upload, offscreen readback
 
-crates/rustory-gameplay-timer/src/lib.rs
+crates/rustory-vn-gameplay-timer/src/lib.rs
   Timed choice: TimerConfig, TimedChoice
 
-apps/rustory/src/
+apps/rustory-vn/src/
   main.rs         CLI dispatch: probe / check / transcript / gen-assets / shot / play
   driver.rs       Click semantics, registry, texture loading, transcript
   scene.rs        The only translation layer from Narrative to Frame

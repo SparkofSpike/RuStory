@@ -5,7 +5,7 @@ touch the narrative core.
 
 The short version: create a crate, implement `GameplaySystem`, add one
 registration line in `driver.rs`, and reference it from a script with a
-`Gameplay` exit. **Not one line of `rustory-core` changes.**
+`Gameplay` exit. **Not one line of `rustory-vn-core` changes.**
 
 ---
 
@@ -72,7 +72,7 @@ rust-version.workspace = true
 description = "RuStory gameplay system: <one line>"
 
 [dependencies]
-rustory-core = { workspace = true }
+rustory-vn-core = { workspace = true }
 serde = { workspace = true }
 ron = { workspace = true }
 thiserror = { workspace = true }
@@ -169,7 +169,7 @@ impl GameplaySystem for MySystem {
 
 ### Step 4: register it (one line)
 
-In `apps/rustory/src/driver.rs`:
+In `apps/rustory-vn/src/driver.rs`:
 
 ```rust
 pub fn default_registry() -> GameplayRegistry {
@@ -284,7 +284,7 @@ Worth covering:
 - `begin` works again after `cancel`;
 - a rejected config leaves internal state **unchanged**.
 
-See the nine tests in `crates/rustory-gameplay-timer/src/lib.rs`.
+See the nine tests in `crates/rustory-vn-gameplay-timer/src/lib.rs`.
 
 ---
 
@@ -374,7 +374,7 @@ fn restore(&mut self, state: Option<&ron::Value>) -> Result<(), CoreError> {
 ```
 
 Two helpers save you from a `ron` quirk: `encode_state` and `decode_state` in
-`rustory_core`. `ron` 0.11 has no `to_value`, so the encode path goes through text;
+`rustory_vn_core`. `ron` 0.11 has no `to_value`, so the encode path goes through text;
 the helper keeps that detail in one place.
 
 ### Order on load
@@ -463,7 +463,7 @@ when it is slow enough to drop frames, you will assume the renderer is at fault.
 
 Two systems ship with the engine, chosen to bracket the range of the contract.
 
-### `crates/rustory-gameplay-timer` — the simple end
+### `crates/rustory-vn-gameplay-timer` — the simple end
 
 - Config: `TimerConfig { prompt, duration_ms, options, correct }`
 - Outcomes: `correct` / `wrong` / `timeout`
@@ -472,7 +472,7 @@ Two systems ship with the engine, chosen to bracket the range of the contract.
 - Persists `remaining_ms` and the chosen index, so a save does not restart the
   clock.
 
-### `crates/rustory-gameplay-quiz` — the stateful end
+### `crates/rustory-vn-gameplay-quiz` — the stateful end
 
 - Config: `QuizConfig { prompt, rounds: [{ question, options, correct }] }`
 - Outcomes: `perfect` / `passed` / `failed`, with "passed" being half or more

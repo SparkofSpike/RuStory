@@ -2800,19 +2800,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustory"
+name = "rustory-vn"
 version = "0.1.0"
 dependencies = [
  "pollster 0.4.0",
  "rodio",
  "ron",
- "rustory-audio",
- "rustory-core",
- "rustory-edit",
- "rustory-gameplay-quiz",
- "rustory-gameplay-timer",
- "rustory-render",
- "rustory-script",
+ "rustory-vn-audio",
+ "rustory-vn-core",
+ "rustory-vn-edit",
+ "rustory-vn-gameplay-quiz",
+ "rustory-vn-gameplay-timer",
+ "rustory-vn-render",
+ "rustory-vn-script",
  "serde",
  "serde_json",
  "wgpu",
@@ -2820,14 +2820,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustory-audio"
+name = "rustory-vn-audio"
 version = "0.1.0"
 dependencies = [
- "rustory-core",
+ "rustory-vn-core",
 ]
 
 [[package]]
-name = "rustory-core"
+name = "rustory-vn-core"
 version = "0.1.0"
 dependencies = [
  "ron",
@@ -2837,57 +2837,57 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustory-edit"
+name = "rustory-vn-edit"
 version = "0.1.0"
 dependencies = [
  "ron",
- "rustory-core",
- "rustory-script",
+ "rustory-vn-core",
+ "rustory-vn-script",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
 ]
 
 [[package]]
-name = "rustory-editor"
+name = "rustory-vn-editor"
 version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
  "rfd",
- "rustory-core",
- "rustory-edit",
- "rustory-gameplay-quiz",
- "rustory-gameplay-timer",
- "rustory-render",
- "rustory-script",
+ "rustory-vn-core",
+ "rustory-vn-edit",
+ "rustory-vn-gameplay-quiz",
+ "rustory-vn-gameplay-timer",
+ "rustory-vn-render",
+ "rustory-vn-script",
  "serde",
  "serde_json",
  "wgpu",
 ]
 
 [[package]]
-name = "rustory-gameplay-quiz"
+name = "rustory-vn-gameplay-quiz"
 version = "0.1.0"
 dependencies = [
  "ron",
- "rustory-core",
+ "rustory-vn-core",
  "serde",
  "thiserror 2.0.21",
 ]
 
 [[package]]
-name = "rustory-gameplay-timer"
+name = "rustory-vn-gameplay-timer"
 version = "0.1.0"
 dependencies = [
  "ron",
- "rustory-core",
+ "rustory-vn-core",
  "serde",
  "thiserror 2.0.21",
 ]
 
 [[package]]
-name = "rustory-render"
+name = "rustory-vn-render"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
@@ -2899,11 +2899,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "rustory-script"
+name = "rustory-vn-script"
 version = "0.1.0"
 dependencies = [
  "ron",
- "rustory-core",
+ "rustory-vn-core",
  "serde",
  "thiserror 2.0.21",
 ]

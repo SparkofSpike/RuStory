@@ -101,10 +101,10 @@ the script's `outcomes` table.
 
 ## Verification
 
-`rustory-gameplay-timer` is the evidence for this decision:
+`rustory-vn-gameplay-timer` is the evidence for this decision:
 
-- It is its own crate, depending only on `rustory-core`.
-- Nothing in `rustory-core` mentions timers, options or correctness.
+- It is its own crate, depending only on `rustory-vn-core`.
+- Nothing in `rustory-vn-core` mentions timers, options or correctness.
 - Integration is one line in `driver.rs`:
   `registry.register(Box::new(TimedChoice::new()))`.
 - It is unaware of the stage, the story and rendering — none of those are in

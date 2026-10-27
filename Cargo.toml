@@ -1,15 +1,15 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/rustory-core",
-    "crates/rustory-script",
-    "crates/rustory-render",
-    "crates/rustory-gameplay-timer",
-    "crates/rustory-gameplay-quiz",
-    "crates/rustory-edit",
-    "crates/rustory-audio",
-    "apps/rustory",
-    "apps/rustory-editor",
+    "crates/rustory-vn-core",
+    "crates/rustory-vn-script",
+    "crates/rustory-vn-render",
+    "crates/rustory-vn-gameplay-timer",
+    "crates/rustory-vn-gameplay-quiz",
+    "crates/rustory-vn-edit",
+    "crates/rustory-vn-audio",
+    "apps/rustory-vn",
+    "apps/rustory-vn-editor",
 ]
 
 [workspace.package]
@@ -22,13 +22,13 @@ homepage = "https://github.com/SparkofSpike/RuStory"
 description = "RuStory — Rust-native visual novel engine with composable gameplay"
 
 [workspace.dependencies]
-rustory-core = { path = "crates/rustory-core" }
-rustory-script = { path = "crates/rustory-script" }
-rustory-render = { path = "crates/rustory-render" }
-rustory-gameplay-timer = { path = "crates/rustory-gameplay-timer" }
-rustory-gameplay-quiz = { path = "crates/rustory-gameplay-quiz" }
-rustory-edit = { path = "crates/rustory-edit" }
-rustory-audio = { path = "crates/rustory-audio" }
+rustory-vn-core = { path = "crates/rustory-vn-core" }
+rustory-vn-script = { path = "crates/rustory-vn-script" }
+rustory-vn-render = { path = "crates/rustory-vn-render" }
+rustory-vn-gameplay-timer = { path = "crates/rustory-vn-gameplay-timer" }
+rustory-vn-gameplay-quiz = { path = "crates/rustory-vn-gameplay-quiz" }
+rustory-vn-edit = { path = "crates/rustory-vn-edit" }
+rustory-vn-audio = { path = "crates/rustory-vn-audio" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -39,7 +39,7 @@ unicode-segmentation = "1"
 
 # Platform layer: borrow existing implementations of OS abstractions, never build
 # them. The engine's own world model, scheduling, state machine, story format and
-# gameplay contract all live in rustory-core and are written from scratch.
+# gameplay contract all live in rustory-vn-core and are written from scratch.
 winit = "0.30"
 wgpu = "30"
 glyphon = "0.12"

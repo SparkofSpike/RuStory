@@ -45,7 +45,7 @@ model** — a validator, a previewer, eventually a visual editor.
 1. **Without a runtime, a toolchain has nothing to validate against.** A script
    generator that cannot prove its output plays correctly produces output nobody
    should trust. The runtime is the toolchain's **acceptance test**.
-2. **A shared data model is what makes tooling cheap.** `rustory-core` already
+2. **A shared data model is what makes tooling cheap.** `rustory-vn-core` already
    defines `Story`, `Node`, `Beat` and `Exit`. Any future tool solves against that
    model instead of inventing its own. `rustory check` in this repository is
    already an instance of such a tool.
@@ -71,8 +71,8 @@ model** — a validator, a previewer, eventually a visual editor.
 
 **The interface left open for later**
 
-`rustory-script` is the only entry point for the format. If a DSL or an
-LLM-driven generation flow is added later, it compiles **to** `rustory_core::Story`
+`rustory-vn-script` is the only entry point for the format. If a DSL or an
+LLM-driven generation flow is added later, it compiles **to** `rustory_vn_core::Story`
 rather than changing the core. That constraint keeps any toolchain a pluggable
 satellite instead of a second engine.
 

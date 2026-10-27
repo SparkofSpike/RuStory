@@ -39,7 +39,7 @@ enough that a frame-rate problem looks like a renderer bug. Do not change it.
    crates that already do them well. Bevy, Godot and macroquad are framework-sized: they
    bring their own ECS and main loop, which is the thing this project exists to own.
 2. **Extension is addition.** A new gameplay is a new crate implementing `GameplaySystem`,
-   registered in one place. If adding a gameplay requires editing `rustory-core`, the
+   registered in one place. If adding a gameplay requires editing `rustory-vn-core`, the
    architecture is wrong — fix it before adding the feature.
 3. **Boundaries are checkable.** Cross-system state is an `enum`, a `trait` or an event.
    `HashMap<String, Box<dyn Any>>` is not a design.
@@ -68,15 +68,15 @@ Do not add `Co-Authored-By` trailers for tools. Authorship is the person who dec
 [`docs/gameplay-integration.md`](gameplay-integration.md) is the guide, with a minimal
 example. The shape is always the same:
 
-1. New crate, `#![forbid(unsafe_code)]`, depending on `rustory-core` and nothing above it.
+1. New crate, `#![forbid(unsafe_code)]`, depending on `rustory-vn-core` and nothing above it.
 2. A type implementing `GameplaySystem`: `step`, `prompt`, and `save`/`restore` if it holds
    state that a save must carry.
 3. One registration line in the app's registry.
 4. A story node whose exit is `Exit::Gameplay` naming the system and mapping each outcome
    key to a node.
 
-Then add a test that drives the system with no window and no GPU. `rustory-gameplay-timer`
-(small) and `rustory-gameplay-quiz` (stateful, saved) are the two references; two is the
+Then add a test that drives the system with no window and no GPU. `rustory-vn-gameplay-timer`
+(small) and `rustory-vn-gameplay-quiz` (stateful, saved) are the two references; two is the
 minimum that makes "it is compositional" a fact rather than a hope.
 
 ## Changing the architecture

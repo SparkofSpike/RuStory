@@ -1,0 +1,27 @@
+[package]
+name = "rustory-vn-editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+description = "RuStory visual editor: edit stories as forms, preview with the real engine."
+
+[[bin]]
+name = "rustory-vn-editor"
+path = "src/main.rs"
+
+[dependencies]
+rustory-vn-core = { workspace = true }
+rustory-vn-script = { workspace = true }
+rustory-vn-render = { workspace = true }
+rustory-vn-edit = { workspace = true }
+rustory-vn-gameplay-timer = { workspace = true }
+rustory-vn-gameplay-quiz = { workspace = true }
+eframe = { workspace = true }
+egui = { workspace = true }
+wgpu = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rfd = { workspace = true }

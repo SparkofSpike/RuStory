@@ -79,7 +79,7 @@ a single key back.**
    places: `tick`, `advance`/`choose`, and `resolve_gameplay`. No gameplay system
    can mutate narrative state behind the core's back.
 2. **Testable.** Everything in `GameplayContext` is a plain value, so testing a
-   system needs no story. All nine tests in `rustory-gameplay-timer` run purely in
+   system needs no story. All nine tests in `rustory-vn-gameplay-timer` run purely in
    memory.
 3. **Expansion is explicit.** If a system genuinely needs to read the stage — "judge
    the click by sprite position", say — that cannot be solved by adding a field.

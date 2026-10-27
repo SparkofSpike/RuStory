@@ -104,7 +104,7 @@ This is not hypothetical: the test that exercises the path loads a system file n
 
 ## Verification
 
-- `crates/rustory-render/tests/fonts.rs` — 8 tests: loading a real font and
+- `crates/rustory-vn-render/tests/fonts.rs` — 8 tests: loading a real font and
   recovering its declared families, a missing file, a file that is not a font, an
   unknown family name, selecting an installed family, a directory with junk in it,
   and the two `FontChoice` defaults.

@@ -153,11 +153,11 @@ throw away a playthrough over a cosmetic difference.
 
 Implemented and covered by tests:
 
-- `crates/rustory-core/tests/save.rs` — 15 tests: mid-line resume, stage and
+- `crates/rustory-vn-core/tests/save.rs` — 15 tests: mid-line resume, stage and
   counters, pending choice, finished story, checksum and version rejection, beat
   and mode mismatches, reveal clamping, stable serialisation, and a gameplay
   system whose list state survives a save.
-- `crates/rustory-gameplay-quiz` — the system that forced this design, with its own
+- `crates/rustory-vn-gameplay-quiz` — the system that forced this design, with its own
   tests for a half-finished save resuming at the right round and for rejecting a
   round index beyond the config.
 - End to end through the CLI: `rustory save stories/demo.ron --advance 6` writes a

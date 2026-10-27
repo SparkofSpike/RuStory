@@ -111,7 +111,7 @@ achieved on top of Bevy?
 Verified after the decision landed:
 
 - `cargo build` succeeds (wgpu 30 + glyphon 0.12 + winit 0.30 compile together).
-- `cargo run -p rustory` reports a real GPU adapter and font count:
+- `cargo run -p rustory-vn` reports a real GPU adapter and font count:
   `Intel(R) RaptorLake-S Mobile Graphics Controller [Intel Corporation / Vulkan]`,
   `436 system fonts discovered`.
 

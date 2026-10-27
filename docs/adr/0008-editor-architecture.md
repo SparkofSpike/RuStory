@@ -35,16 +35,16 @@ both construct operations and hand them to the same executor.
 
 ## Decision
 
-**Adopt C.** [`rustory-edit`](../../crates/rustory-edit) is that layer.
+**Adopt C.** [`rustory-vn-edit`](../../crates/rustory-vn-edit) is that layer.
 
 ```
-        rustory-edit
+        rustory-vn-edit
         ├── Document   story + path
         ├── EditOp     every change, one enum
         └── Editor     apply · validate · rollback · undo · save
                 ▲
       ┌─────────┴─────────┐
- rustory-editor        rustory (CLI)
+ rustory-vn-editor        rustory (CLI)
    (egui GUI)          (ops · inspect · edit)
 ```
 
@@ -70,7 +70,7 @@ The same reasoning produced two refusals rather than conveniences:
 
 - It is immediate-mode, so the editor's state *is* the UI's state. No widget tree to keep
   in sync with the document, which is the class of bug that makes editors feel unreliable.
-- `egui-wgpu` 0.37 takes `wgpu ^30`, the exact version `rustory-render` uses. Sharing one
+- `egui-wgpu` 0.37 takes `wgpu ^30`, the exact version `rustory-vn-render` uses. Sharing one
   device means the preview can render with the engine itself.
 - No C++ toolchain, no bindings, no second build system.
 
@@ -80,8 +80,8 @@ editor and the document — for a tool whose value is that the operations are ex
 
 ## The preview is the engine, not a mock-up
 
-`rustory-editor` builds the same `Frame` that `rustory play` renders, using
-`rustory_render::Renderer`. A preview that approximated the output would be worse than
+`rustory-vn-editor` builds the same `Frame` that `rustory play` renders, using
+`rustory_vn_render::Renderer`. A preview that approximated the output would be worse than
 none, because it would be trusted.
 
 The preview starts at the node selected in the node list, not at `story.start`. A preview
@@ -95,15 +95,15 @@ along the path already taken. Replaying a path against an edited story lands whe
 clicks did; a branch that no longer exists falls back to advancing rather than wedging
 the preview.
 
-Layout code is duplicated between `apps/rustory/src/scene.rs` and
-`apps/rustory-editor/src/preview.rs`. That duplication is a **known cost**, recorded here
-rather than hidden: the alternative is hoisting layout into `rustory-render`, which would
+Layout code is duplicated between `apps/rustory-vn/src/scene.rs` and
+`apps/rustory-vn-editor/src/preview.rs`. That duplication is a **known cost**, recorded here
+rather than hidden: the alternative is hoisting layout into `rustory-vn-render`, which would
 put story concepts into the renderer and break invariant 5 of the architecture. The
-mitigation is that both call the same `rustory_render` primitives, so an engine change
+mitigation is that both call the same `rustory_vn_render` primitives, so an engine change
 shows up in both, and the duplication is layout constants only — no game logic.
 
 This is the one place the architecture has a seam the compiler does not check. If a third
-front-end appears, layout should move into `rustory-edit` as a "scene description"
+front-end appears, layout should move into `rustory-vn-edit` as a "scene description"
 intermediate, and this ADR should be superseded.
 
 ## What the GUI deliberately does not do
@@ -117,14 +117,14 @@ intermediate, and this ADR should be superseded.
 
 ## Verification
 
-- `cargo test --workspace` — 267 tests. `rustory-edit` contributes 73 of them, covering
+- `cargo test --workspace` — 267 tests. `rustory-vn-edit` contributes 73 of them, covering
   every operation, every refusal, batch rollback, undo/redo, and a lossless save/reload
   round-trip including non-ASCII text.
 - `rustory ops --json` prints the operation vocabulary with `changes_structure` flags.
 - `rustory inspect --json` prints the story as data with the same schema on success and
   failure.
 - `rustory edit` refuses a batch atomically; `--dry-run` proves the file is untouched.
-- `rustory-editor --check <story>` renders one preview frame without a window and fails
+- `rustory-vn-editor --check <story>` renders one preview frame without a window and fails
   if the result looks blank — the regression test a GUI otherwise cannot have.
 - The screenshots in `shots/editor.png` were produced by running the real binary.
 
@@ -146,8 +146,8 @@ intermediate, and this ADR should be superseded.
 - **The preview does not re-render on window resize.** The logical resolution is fixed,
   so this only shows up as letterboxing differences.
 - **No colour grading or theme editor.** Layout constants are compiled in; a project that
-  wants a different dialogue box position edits `apps/rustory-editor/src/preview.rs` and
-  `apps/rustory/src/scene.rs`.
+  wants a different dialogue box position edits `apps/rustory-vn-editor/src/preview.rs` and
+  `apps/rustory-vn/src/scene.rs`.
 - **Native-texture display was attempted and abandoned.** The texture the engine drew
   into and the one egui sampled were not the same object, so the panel showed a stale
   blank frame; a magenta clear colour proved it, because a colour that cannot survive any
@@ -197,7 +197,7 @@ follow the project to another machine and mean nothing there.
 - **Tolerance over strictness.** A missing or corrupt file loads as an empty list, and an
   entry that no longer opens is dropped: every item in the menu has to be a file that
   opens, so the list is pruned on startup rather than offering a row of errors.
-- **The CLI reads, the GUI writes.** `rustory-editor --recent [--json]` prints the list
+- **The CLI reads, the GUI writes.** `rustory-vn-editor --recent [--json]` prints the list
   for an agent to inspect without a display. It deliberately does not prune, because a
   terminal command that silently rewrites the user's configuration is a surprise; the
   editor will drop the dead entry the next time it runs.

@@ -49,7 +49,7 @@ no engine rebuild)?
 
 ### Compile-time crate (the only tier implemented today)
 
-- Example: `rustory-gameplay-timer`.
+- Example: `rustory-vn-gameplay-timer`.
 - Trusted, compiled with the engine, zero runtime overhead, full access to Rust.
 - **Almost all gameplay should stay here.** A sandbox is a cost, not a badge.
 

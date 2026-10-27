@@ -49,7 +49,7 @@ this is the expensive answer.
 
 ## Decision
 
-**B.** `Tab` in `apps/rustory-editor/src/tab.rs`; `EditorApp { tabs: Vec<Tab>, active: usize }`.
+**B.** `Tab` in `apps/rustory-vn-editor/src/tab.rs`; `EditorApp { tabs: Vec<Tab>, active: usize }`.
 
 The split follows one question: *can this field name a node or a file?* If yes it is on the
 tab. The interesting cases:
@@ -100,12 +100,12 @@ because each of them is already borrowing the editor at the same time.
 
 ## Verification
 
-- `apps/rustory-editor/src/tab.rs` tests: a new tab selects the start node; an untitled tab has
+- `apps/rustory-vn-editor/src/tab.rs` tests: a new tab selects the start node; an untitled tab has
   no draft; **two tabs write two distinct drafts with the right content in each**; a write
   before the debounce writes nothing; saving and discarding both remove the draft; selecting a
   different node resets the preview path and reselecting the same one does not; a stale
   selection falls back to a node that exists.
-- `apps/rustory-editor/src/app.rs` tests: closing a tab to the left keeps the same document
+- `apps/rustory-vn-editor/src/app.rs` tests: closing a tab to the left keeps the same document
   active; closing the active tab lands on the one that slid into its place; closing the last
   tab pulls the index back; closing the only tab leaves an empty window; an out-of-range close
   does nothing; opening the same path twice yields one tab; path comparison ignores case and

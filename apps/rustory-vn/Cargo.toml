@@ -1,0 +1,32 @@
+[package]
+name = "rustory-vn"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+description = "RuStory CLI — run a story, validate a script."
+
+[[bin]]
+name = "rustory"
+path = "src/main.rs"
+
+[dependencies]
+rustory-vn-core = { workspace = true }
+rustory-vn-script = { workspace = true }
+rustory-vn-render = { workspace = true }
+rustory-vn-gameplay-timer = { workspace = true }
+rustory-vn-gameplay-quiz = { workspace = true }
+rustory-vn-edit = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+winit = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }
+rodio = "0.22"
+rustory-vn-audio = { workspace = true }
+
+[dev-dependencies]
+serde = { workspace = true }
+ron = { workspace = true }

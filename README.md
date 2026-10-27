@@ -21,11 +21,11 @@ The whole design rests on one falsifiable statement:
 
 Two systems ship as evidence, chosen to bracket the range of the contract:
 
-- `crates/rustory-gameplay-timer` — a countdown over a list of options.
-- `crates/rustory-gameplay-quiz` — several rounds, a growing list of answers, and
+- `crates/rustory-vn-gameplay-timer` — a countdown over a list of options.
+- `crates/rustory-vn-gameplay-quiz` — several rounds, a growing list of answers, and
   a verdict that only exists at the end.
 
-`rustory-core` mentions neither. It has no notion of timers, options, rounds,
+`rustory-vn-core` mentions neither. It has no notion of timers, options, rounds,
 scores or correctness. Each crate parses its own config from an opaque value,
 reports outcome keys, and lets the *script* decide where those keys lead. Each
 persists its own state into a save through the same trait.
@@ -42,7 +42,7 @@ from a few shared counters, so a critic could say the contract only accommodates
 simple things. A quiz cannot: it needs a cursor and a list, which is why it also
 proves that a save can carry state the core has never heard of.
 
-If adding a system ever requires editing `rustory-core`, the contract is wrong
+If adding a system ever requires editing `rustory-vn-core`, the contract is wrong
 and the contract gets fixed — not the core.
 
 ## Status
@@ -57,7 +57,7 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 267 tests, including offscreen GPU renders, colour round-trips, and 73 in `rustory-edit`
+- 267 tests, including offscreen GPU renders, colour round-trips, and 73 in `rustory-vn-edit`
 
 Not yet: rollback history, WASM plugins, an authoring tool. Those have ADRs describing the
 plan, not code pretending to be one.
@@ -65,7 +65,7 @@ plan, not code pretending to be one.
 ## Editor
 
 Two front-ends, one operation layer. The GUI and the CLI both construct
-`rustory_edit::EditOp` values and hand them to the same executor, so an agent can do
+`rustory_vn_edit::EditOp` values and hand them to the same executor, so an agent can do
 anything a person can — not by keeping two programs in agreement, but because there is
 only one program's worth of rules.
 
@@ -84,11 +84,11 @@ first.
 ![Two documents open](shots/editor-tabs.png)
 
 ```console
-$ cargo run -p rustory-editor                        # new story
-$ cargo run -p rustory-editor -- stories/demo.ron    # open an existing one
-$ cargo run -p rustory -- ops --json                 # what an agent can do
-$ cargo run -p rustory -- inspect stories/demo.ron --json
-$ cargo run -p rustory -- edit stories/demo.ron --op '{"op":"CreateNode","id":"epilogue"}'
+$ cargo run -p rustory-vn-editor                        # new story
+$ cargo run -p rustory-vn-editor -- stories/demo.ron    # open an existing one
+$ cargo run -p rustory-vn -- ops --json                 # what an agent can do
+$ cargo run -p rustory-vn -- inspect stories/demo.ron --json
+$ cargo run -p rustory-vn -- edit stories/demo.ron --op '{"op":"CreateNode","id":"epilogue"}'
 ```
 
 `ops` prints a JSON body for each operation that parses as written — copy one and change
@@ -102,8 +102,8 @@ the last ten stories one click away, and the same list is readable from a termin
 can ask what the user has been editing without opening a window:
 
 ```console
-$ cargo run -p rustory-editor -- --recent          # one path per line
-$ cargo run -p rustory-editor -- --recent --json   # same list, structured
+$ cargo run -p rustory-vn-editor -- --recent          # one path per line
+$ cargo run -p rustory-vn-editor -- --recent --json   # same list, structured
 ```
 
 The list lives in `%APPDATA%\rustory\recent.json` (`$XDG_CONFIG_HOME/rustory` elsewhere)
@@ -156,7 +156,7 @@ Content problems that are not errors are reported instead: a node no path can re
 gameplay node that maps no outcomes. They are listed in the preview panel and in the
 status bar, not refused, because a draft branch is a normal state while writing.
 
-The preview panel is the real engine — `rustory_render` drawing the same `Frame` that
+The preview panel is the real engine — `rustory_vn_render` drawing the same `Frame` that
 `rustory play` shows — and it starts at the node you have selected, so clicking a node
 shows that node's frame rather than the top of the story. It is a playthrough, not a
 still: click the picture to advance, and when the story offers branches they appear as
@@ -165,14 +165,14 @@ buttons under it. See [ADR 0008](docs/adr/0008-editor-architecture.md).
 ## Try it
 
 ```console
-$ cargo run -p rustory -- gen-assets assets       # placeholder art
-$ cargo run -p rustory -- check stories/demo.ron  # parse + validate (--json for a report)
-$ cargo run -p rustory -- play stories/demo.ron   # play it
-$ cargo run -p rustory -- shot stories/demo.ron --out frame.png --advance 4
-$ cargo run -p rustory -- shot stories/demo.ron --at honest:2 --out frame.png
+$ cargo run -p rustory-vn -- gen-assets assets       # placeholder art
+$ cargo run -p rustory-vn -- check stories/demo.ron  # parse + validate (--json for a report)
+$ cargo run -p rustory-vn -- play stories/demo.ron   # play it
+$ cargo run -p rustory-vn -- shot stories/demo.ron --out frame.png --advance 4
+$ cargo run -p rustory-vn -- shot stories/demo.ron --at honest:2 --out frame.png
 
-$ cargo run -p rustory -- save stories/demo.ron --advance 6 --out save.ron
-$ cargo run -p rustory -- resume stories/demo.ron save.ron --finish
+$ cargo run -p rustory-vn -- save stories/demo.ron --advance 6 --out save.ron
+$ cargo run -p rustory-vn -- resume stories/demo.ron save.ron --finish
 ```
 
 `--advance` counts clicks, which is what a player does; `--at` names a position, which
@@ -183,7 +183,7 @@ whole interaction.
 The demo runs without a window too:
 
 ```console
-$ cargo run -p rustory -- transcript stories/demo.ron
+$ cargo run -p rustory-vn -- transcript stories/demo.ron
 After school, the classroom holds only two people.
 Yuki: You haven't left yet?
 Kai: I was waiting for you.
@@ -207,14 +207,14 @@ borrowed.**
 
 | Layer | Crate | Owns |
 |---|---|---|
-| Narrative core | `rustory-core` | Story model, state machine, gameplay contract. Zero rendering dependencies |
-| Story format | `rustory-script` | RON loading, reference validation |
-| Renderer | `rustory-render` | Draw list → pixels on `wgpu`. Knows nothing about stories |
-| Gameplay | `rustory-gameplay-timer`, `rustory-gameplay-quiz` | Two systems bracketing the range: a countdown, and state no counter could hold |
-| Editor | `rustory-edit` | Document, typed operations, undo, validation. No UI, no pixels |
-| Application | `apps/rustory`, `apps/rustory-editor` | CLI and player; GUI editor. Both are front-ends over `rustory-edit` |
+| Narrative core | `rustory-vn-core` | Story model, state machine, gameplay contract. Zero rendering dependencies |
+| Story format | `rustory-vn-script` | RON loading, reference validation |
+| Renderer | `rustory-vn-render` | Draw list → pixels on `wgpu`. Knows nothing about stories |
+| Gameplay | `rustory-vn-gameplay-timer`, `rustory-vn-gameplay-quiz` | Two systems bracketing the range: a countdown, and state no counter could hold |
+| Editor | `rustory-vn-edit` | Document, typed operations, undo, validation. No UI, no pixels |
+| Application | `apps/rustory-vn`, `apps/rustory-vn-editor` | CLI and player; GUI editor. Both are front-ends over `rustory-vn-edit` |
 
-Dependencies point one way: everything depends on `rustory-core`; the core
+Dependencies point one way: everything depends on `rustory-vn-core`; the core
 depends on nothing above it.
 
 Three boundaries are enforced by types rather than convention:
@@ -237,7 +237,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
 cargo test --workspace      # 267 tests; render tests skip without a GPU
-cargo run -p rustory -- probe
+cargo run -p rustory-vn -- probe
 ```
 
 The dev profile builds dependencies at `opt-level = 3` — an unoptimized
@@ -254,7 +254,7 @@ Which means a project that cares about its typography supplies its own:
 
 ```console
 $ mkdir -p assets/fonts && cp MyTypeface.ttf assets/fonts/
-$ cargo run -p rustory -- shot stories/demo.ron --out frame.png
+$ cargo run -p rustory-vn -- shot stories/demo.ron --out frame.png
 font: My Typeface
 ```
 
