@@ -277,6 +277,16 @@ fn describe_beat(beat: &rustory_core::Beat) -> String {
             Some(image) => format!("background {image}"),
             None => "clear background".to_owned(),
         },
+        Beat::Music { track, fade_ms } => match (track, fade_ms.unwrap_or(0)) {
+            (Some(track), 0) => format!("music {track}"),
+            (Some(track), fade) => format!("music {track} over {fade}ms"),
+            (None, 0) => "stop music".to_owned(),
+            (None, fade) => format!("stop music over {fade}ms"),
+        },
+        Beat::Sound { clip, volume } => match volume {
+            Some(volume) => format!("sound {clip} at {volume:.2}"),
+            None => format!("sound {clip}"),
+        },
     }
 }
 

@@ -636,6 +636,26 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                         beat: Beat::SetBackground { image: None },
                     });
                 }
+                if ui.button("+ Music").clicked() {
+                    app.pending.push(EditOp::InsertBeat {
+                        node: selected.clone(),
+                        index: beat_count,
+                        beat: Beat::Music {
+                            track: None,
+                            fade_ms: Some(800),
+                        },
+                    });
+                }
+                if ui.button("+ Sound").clicked() {
+                    app.pending.push(EditOp::InsertBeat {
+                        node: selected.clone(),
+                        index: beat_count,
+                        beat: Beat::Sound {
+                            clip: String::new(),
+                            volume: None,
+                        },
+                    });
+                }
             });
 
             ui.separator();
@@ -1054,6 +1074,58 @@ fn beat_form(ui: &mut egui::Ui, beat: &mut Beat, index: usize) -> bool {
                             .desired_width(180.0)
                             .hint_text("bg.png"),
                     );
+                }
+            });
+        }
+        Beat::Music { track, fade_ms } => {
+            ui.horizontal(|ui| {
+                ui.label("music");
+                let mut playing = track.is_some();
+                if ui.checkbox(&mut playing, "play").changed() {
+                    *track = if playing { Some(String::new()) } else { None };
+                }
+                if let Some(name) = track {
+                    ui.add(
+                        egui::TextEdit::singleline(name)
+                            .desired_width(160.0)
+                            .hint_text("track"),
+                    );
+                }
+                ui.label("fade");
+                // Milliseconds rather than seconds: the value goes into the story file,
+                // and a unit that survives a round trip without float formatting is one
+                // fewer way for the file to churn.
+                let mut fade = fade_ms.unwrap_or(0);
+                if ui
+                    .add(egui::DragValue::new(&mut fade).speed(10).range(0..=10_000))
+                    .changed()
+                {
+                    *fade_ms = Some(fade);
+                }
+                ui.label("ms");
+            });
+        }
+        Beat::Sound { clip, volume } => {
+            ui.horizontal(|ui| {
+                ui.label("sound");
+                ui.add(
+                    egui::TextEdit::singleline(clip)
+                        .desired_width(180.0)
+                        .hint_text("clip"),
+                );
+                ui.label("volume");
+                let mut level = volume.unwrap_or(1.0);
+                if ui
+                    .add(egui::Slider::new(&mut level, 0.0..=1.0).fixed_decimals(2))
+                    .changed()
+                {
+                    // `None` means "the default", which is 1.0. Writing 1.0 back as an
+                    // explicit value would make every sound beat longer for no reason.
+                    *volume = if (level - 1.0).abs() < f32::EPSILON {
+                        None
+                    } else {
+                        Some(level)
+                    };
                 }
             });
         }

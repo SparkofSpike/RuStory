@@ -675,3 +675,139 @@ fn draining_events_empties_the_queue() {
         "take_events must empty the queue, not copy it"
     );
 }
+
+// --- audio cues ---------------------------------------------------------
+
+#[test]
+fn a_music_beat_sets_the_track_and_reports_it() {
+    let mut narrative = Narrative::new(make_story(
+        vec![(
+            "only",
+            Node {
+                beats: vec![
+                    Beat::Music {
+                        track: Some("classroom".into()),
+                        fade_ms: Some(800),
+                    },
+                    say("hello"),
+                ],
+                exit: end(),
+            },
+        )],
+        "only",
+    ))
+    .expect("valid");
+
+    // The music beat runs before the line, so the track is already known when the first
+    // frame is drawn.
+    assert_eq!(narrative.music(), Some("classroom"));
+
+    let changes = drain_matching(&mut narrative, |event| {
+        matches!(event, NarrativeEvent::MusicChanged { .. })
+    });
+    assert_eq!(changes.len(), 1);
+    assert!(matches!(
+        &changes[0],
+        NarrativeEvent::MusicChanged { track: Some(track), fade_ms: 800 } if track == "classroom"
+    ));
+}
+
+#[test]
+fn stopping_the_music_is_also_a_cue() {
+    let mut narrative = Narrative::new(make_story(
+        vec![(
+            "only",
+            Node {
+                beats: vec![
+                    Beat::Music {
+                        track: Some("classroom".into()),
+                        fade_ms: None,
+                    },
+                    Beat::Music {
+                        track: None,
+                        fade_ms: None,
+                    },
+                    say("silence"),
+                ],
+                exit: end(),
+            },
+        )],
+        "only",
+    ))
+    .expect("valid");
+
+    assert_eq!(narrative.music(), None);
+    let changes = drain_matching(&mut narrative, |event| {
+        matches!(event, NarrativeEvent::MusicChanged { .. })
+    });
+    assert_eq!(changes.len(), 2, "both the start and the stop are reported");
+    assert!(matches!(
+        &changes[1],
+        NarrativeEvent::MusicChanged {
+            track: None,
+            fade_ms: 0
+        }
+    ));
+}
+
+#[test]
+fn a_sound_beat_is_an_event_and_not_a_state() {
+    let mut narrative = Narrative::new(make_story(
+        vec![(
+            "only",
+            Node {
+                beats: vec![
+                    Beat::Sound {
+                        clip: "door".into(),
+                        volume: Some(0.4),
+                    },
+                    say("a door"),
+                ],
+                exit: end(),
+            },
+        )],
+        "only",
+    ))
+    .expect("valid");
+
+    // A one-shot leaves nothing behind: `music()` says nothing about it, because a sound
+    // is something that happened, not something that is on.
+    assert_eq!(narrative.music(), None);
+
+    let sounds = drain_matching(&mut narrative, |event| {
+        matches!(event, NarrativeEvent::SoundPlayed { .. })
+    });
+    assert_eq!(sounds.len(), 1);
+    assert!(matches!(
+        &sounds[0],
+        NarrativeEvent::SoundPlayed { clip, volume } if clip == "door" && (*volume - 0.4).abs() < 1e-6
+    ));
+}
+
+#[test]
+fn music_beats_do_not_wait_for_the_player() {
+    // Audio is non-blocking. If it were not, a scene that starts a track would need a click
+    // before the first line appeared.
+    let narrative = Narrative::new(make_story(
+        vec![(
+            "only",
+            Node {
+                beats: vec![
+                    Beat::Music {
+                        track: Some("theme".into()),
+                        fade_ms: Some(2000),
+                    },
+                    say("meanwhile"),
+                ],
+                exit: end(),
+            },
+        )],
+        "only",
+    ))
+    .expect("valid");
+
+    assert!(
+        matches!(narrative.mode(), Mode::Revealing),
+        "the narrative should already be showing the line, not stuck on the cue"
+    );
+}

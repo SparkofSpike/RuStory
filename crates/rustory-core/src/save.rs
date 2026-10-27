@@ -62,6 +62,11 @@ pub struct SaveState {
     pub revealed: usize,
     /// Background and actors currently on stage.
     pub stage: Stage,
+    /// The track that should be playing, or `None`. Defaulted so saves written before
+    /// audio existed still load — they simply describe a silent scene, which is what they
+    /// were.
+    #[serde(default)]
+    pub music: Option<String>,
     /// Shared counters.
     pub stats: Stats,
     /// Present only when the save was taken while a gameplay system had control.
@@ -106,6 +111,7 @@ mod tests {
             mode: Mode::AwaitingAdvance,
             revealed: 17,
             stage: Stage::default(),
+            music: Some("classroom".to_owned()),
             stats,
             gameplay: None,
         }

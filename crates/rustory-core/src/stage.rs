@@ -70,6 +70,10 @@ impl Stage {
                 self.background.clone_from(image);
                 true
             }
+            // Audio is a state the narrative carries and a host plays; the stage is what a
+            // renderer draws. Putting the music here would make the visual layer know about
+            // sound, so `apply` ignores these and the narrative reports them as events.
+            Beat::Music { .. } | Beat::Sound { .. } => false,
         }
     }
 

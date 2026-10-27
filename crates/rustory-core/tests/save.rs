@@ -541,3 +541,76 @@ fn a_system_that_cannot_restore_rejects_state_rather_than_dropping_it() {
         "silently discarding state would resume the scene with invisible progress lost: {err}"
     );
 }
+
+// --- audio in saves -----------------------------------------------------
+
+#[test]
+fn the_playing_track_survives_a_save_and_load() {
+    // Resuming in the middle of a scene must bring the music back. A host that only
+    // watched events would have no idea what was playing when the file was written, which
+    // is why the narrative carries the track rather than leaving it to the player.
+    let story = make_story(
+        vec![(
+            "only",
+            Node {
+                beats: vec![
+                    Beat::Music {
+                        track: Some("classroom".into()),
+                        fade_ms: None,
+                    },
+                    say("a line"),
+                ],
+                exit: Exit::End { ending: None },
+            },
+        )],
+        "only",
+    );
+
+    let mut registry = GameplayRegistry::new();
+    let narrative = Narrative::new(story.clone()).expect("valid");
+    assert_eq!(narrative.music(), Some("classroom"));
+
+    let save = narrative.save(&registry).expect("saves");
+    assert_eq!(save.music.as_deref(), Some("classroom"));
+
+    let resumed = Narrative::from_save(story, &save, &mut registry).expect("resumes");
+    assert_eq!(
+        resumed.music(),
+        Some("classroom"),
+        "a resumed scene plays the track it was saved with"
+    );
+}
+
+#[test]
+fn a_save_written_before_audio_existed_still_loads() {
+    // The field is `#[serde(default)]` for exactly this: an older save describes a silent
+    // scene, which is what it was. Refusing it would lose a player's progress over a
+    // feature they never used.
+    let story = make_story(
+        vec![(
+            "only",
+            Node {
+                beats: vec![say("a line")],
+                exit: Exit::End { ending: None },
+            },
+        )],
+        "only",
+    );
+
+    let mut registry = GameplayRegistry::new();
+    let narrative = Narrative::new(story.clone()).expect("valid");
+    let save = narrative.save(&registry).expect("saves");
+    let text = save.to_ron().expect("serialises");
+
+    // Remove the line the new build writes; what is left is a pre-audio save.
+    let without_music: String = text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("music:"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_ne!(without_music, text, "the test must actually remove a line");
+
+    let old = SaveState::from_ron(&without_music).expect("an older save parses");
+    assert_eq!(old.music, None);
+    assert!(Narrative::from_save(story, &old, &mut registry).is_ok());
+}

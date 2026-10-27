@@ -24,12 +24,18 @@ Story(
         "prologue": (
             beats: [
                 SetBackground(image: Some("bg_classroom.png")),
+                // Music is a beat, not a scene property: a track can change mid-node, and
+                // the fade is part of the direction rather than something the host invents.
+                Music(track: Some("classroom"), fade_ms: Some(1200)),
                 Say(speaker: None, text: "After school, the classroom holds only two people."),
                 ShowActor(actor: "yuki", pose: "yuki_smile", slot: Left),
                 Say(speaker: Some("yuki"), text: "You haven't left yet?"),
                 ShowActor(actor: "kai", pose: "kai_neutral", slot: Right),
                 Say(speaker: Some("kai"), text: "I was waiting for you."),
                 Say(speaker: Some("yuki"), text: "...Waiting for what?"),
+                // A one-shot is an event, never replayed by a load: a door that slammed
+                // once should not slam again because the player resumed mid-scene.
+                Sound(clip: "chime", volume: Some(0.6)),
             ],
             exit: Choose(
                 prompt: Some("How do you answer?"),
@@ -67,6 +73,8 @@ Story(
         "deflect": (
             beats: [
                 Say(speaker: Some("yuki"), text: "Changing the subject. That's you alright."),
+                Music(track: None, fade_ms: Some(900)),
+                Sound(clip: "door"),
                 SetBackground(image: None),
                 HideActor(actor: "yuki"),
                 HideActor(actor: "kai"),

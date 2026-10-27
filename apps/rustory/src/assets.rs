@@ -151,10 +151,7 @@ fn sprite(body: Rgba, accent: Rgba) -> Rgba8Image {
 /// Paths written by [`generate`].
 pub fn generate(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>, ImageError> {
     let dir = dir.as_ref();
-    std::fs::create_dir_all(dir).map_err(|err| ImageError {
-        path: dir.display().to_string(),
-        message: err.to_string(),
-    })?;
+    std::fs::create_dir_all(dir).map_err(io_error(dir))?;
 
     let files = [
         ("bg_classroom.png", background()),
@@ -177,7 +174,108 @@ pub fn generate(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>, ImageError> {
         image.save_png(&path)?;
         written.push(path);
     }
+
+    // Audio goes in its own folder, because a game will eventually have dozens of clips and
+    // mixing them with sprites makes both lists harder to read.
+    let audio_dir = dir.join("audio");
+    std::fs::create_dir_all(&audio_dir).map_err(io_error(&audio_dir))?;
+    for (name, samples) in [
+        ("classroom.wav", classroom_theme()),
+        ("chime.wav", chime()),
+        ("door.wav", door()),
+    ] {
+        let path = audio_dir.join(name);
+        std::fs::write(&path, wav_bytes(&samples, SAMPLE_RATE)).map_err(io_error(&path))?;
+        written.push(path);
+    }
+
     Ok(written)
+}
+
+/// Sample rate for generated audio.
+///
+/// 22050 Hz mono is enough for a placeholder and keeps the files small: these exist to
+/// prove the audio path works, not to sound good.
+const SAMPLE_RATE: u32 = 22_050;
+
+fn io_error(path: &Path) -> impl Fn(std::io::Error) -> ImageError + '_ {
+    move |err| ImageError {
+        path: path.display().to_string(),
+        message: err.to_string(),
+    }
+}
+
+/// Wrap 16-bit mono samples in a RIFF/WAVE container.
+///
+/// Written by hand rather than pulled from a crate: 44 bytes of header is less code than
+/// a dependency, and the format is fixed and documented.
+fn wav_bytes(samples: &[i16], sample_rate: u32) -> Vec<u8> {
+    let data_len = (samples.len() * 2) as u32;
+    let mut out = Vec::with_capacity(44 + data_len as usize);
+
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVE");
+
+    out.extend_from_slice(b"fmt ");
+    out.extend_from_slice(&16u32.to_le_bytes()); // PCM header size
+    out.extend_from_slice(&1u16.to_le_bytes()); // format: PCM
+    out.extend_from_slice(&1u16.to_le_bytes()); // channels: mono
+    out.extend_from_slice(&sample_rate.to_le_bytes());
+    out.extend_from_slice(&(sample_rate * 2).to_le_bytes()); // byte rate
+    out.extend_from_slice(&2u16.to_le_bytes()); // block align
+    out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for sample in samples {
+        out.extend_from_slice(&sample.to_le_bytes());
+    }
+    out
+}
+
+/// A note with a short attack and release, so looping it does not click.
+fn note(frequency: f32, seconds: f32, amplitude: f32) -> Vec<i16> {
+    let count = (SAMPLE_RATE as f32 * seconds) as usize;
+    let edge = (SAMPLE_RATE as f32 * 0.02) as usize; // 20ms
+    (0..count)
+        .map(|index| {
+            let t = index as f32 / SAMPLE_RATE as f32;
+            let envelope = if index < edge {
+                index as f32 / edge as f32
+            } else if index + edge > count {
+                (count - index) as f32 / edge as f32
+            } else {
+                1.0
+            };
+            let wave = (t * frequency * std::f32::consts::TAU).sin();
+            (wave * amplitude * envelope * i16::MAX as f32) as i16
+        })
+        .collect()
+}
+
+/// Four bars of a slow arpeggio: enough to hear that a loop is looping.
+fn classroom_theme() -> Vec<i16> {
+    // A minor-ish walk that resolves, so the loop point is audible rather than a mystery.
+    let steps = [220.0, 261.63, 329.63, 261.63];
+    let mut samples = Vec::new();
+    for _ in 0..2 {
+        for frequency in steps {
+            samples.extend(note(frequency, 0.5, 0.18));
+        }
+    }
+    samples
+}
+
+fn chime() -> Vec<i16> {
+    let mut samples = note(880.0, 0.18, 0.3);
+    samples.extend(note(1318.5, 0.22, 0.22));
+    samples
+}
+
+fn door() -> Vec<i16> {
+    // Low and short: a thud, not a melody.
+    note(98.0, 0.16, 0.35)
 }
 
 #[cfg(test)]
@@ -216,7 +314,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
 
         let written = generate(&dir).expect("generate");
-        assert_eq!(written.len(), 3);
+        assert_eq!(written.len(), 6, "three sprites and three sounds");
         for path in &written {
             assert!(path.exists(), "{} should exist", path.display());
             assert!(path.metadata().expect("stat").len() > 0);

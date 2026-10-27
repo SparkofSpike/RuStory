@@ -9,7 +9,11 @@ use crate::ids::{ActorId, NodeId, OutcomeKey, SystemId};
 use crate::story::Slot;
 
 /// Something the narrative did.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// One thing that happened, in order.
+///
+/// `PartialEq` and not `Eq`: `SoundPlayed` carries a volume, and floats are not totally
+/// ordered. Nothing compares events for identity — they are drained and acted on.
+#[derive(Debug, Clone, PartialEq)]
 pub enum NarrativeEvent {
     /// Playback moved into a node, before any of its beats ran.
     NodeEntered { node: NodeId },
@@ -25,6 +29,13 @@ pub enum NarrativeEvent {
     ActorHidden { actor: ActorId },
     /// The background was replaced; `None` clears it.
     BackgroundChanged { image: Option<String> },
+    /// The music changed. `None` means it stopped.
+    ///
+    /// A host turns this into a fade if it wants one; the event says what the story
+    /// decided, and `fade_ms` says how long the author asked for.
+    MusicChanged { track: Option<String>, fade_ms: u32 },
+    /// A one-shot sound was triggered.
+    SoundPlayed { clip: String, volume: f32 },
     /// The player is being asked to choose.
     ChoiceOffered { node: NodeId, labels: Vec<String> },
     /// The player chose; `index` refers to the offered list.

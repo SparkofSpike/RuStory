@@ -100,6 +100,13 @@ pub struct Narrative {
     reveal_accum_ms: f32,
     revealed: usize,
     gameplay_begun: bool,
+    /// The track the story says should be playing, or `None` for silence.
+    ///
+    /// Carried in the narrative rather than derived from events because a save has to
+    /// restore it: resuming in the middle of a scene must bring the music back, and a host
+    /// that only watched events would have no idea what was playing when the file was
+    /// written.
+    music: Option<String>,
     events: Vec<NarrativeEvent>,
 }
 
@@ -140,6 +147,7 @@ impl Narrative {
             reveal_accum_ms: 0.0,
             revealed: 0,
             gameplay_begun: false,
+            music: None,
             events: Vec::new(),
         };
         narrative.enter_node(start)?;
@@ -178,6 +186,7 @@ impl Narrative {
             mode: self.mode.clone(),
             revealed: self.revealed,
             stage: self.stage.clone(),
+            music: self.music.clone(),
             stats: self.stats.clone(),
             gameplay,
         })
@@ -240,6 +249,7 @@ impl Narrative {
             reveal_accum_ms: 0.0,
             revealed: save.revealed,
             gameplay_begun: false,
+            music: save.music.clone(),
             events: Vec::new(),
         };
 
@@ -302,6 +312,12 @@ impl Narrative {
     #[must_use]
     pub fn stats(&self) -> &Stats {
         &self.stats
+    }
+
+    /// The track the story wants playing, or `None`.
+    #[must_use]
+    pub fn music(&self) -> Option<&str> {
+        self.music.as_deref()
     }
 
     #[must_use]
@@ -612,6 +628,21 @@ impl Narrative {
                         });
                         self.events
                             .push(NarrativeEvent::BackgroundChanged { image });
+                        self.beat_index += 1;
+                    }
+                    Beat::Music { track, fade_ms } => {
+                        // Non-blocking: the story keeps moving while a track fades, which
+                        // is the whole point of asking for a fade.
+                        let (track, fade_ms) = (track.clone(), fade_ms.unwrap_or(0));
+                        self.music.clone_from(&track);
+                        self.events
+                            .push(NarrativeEvent::MusicChanged { track, fade_ms });
+                        self.beat_index += 1;
+                    }
+                    Beat::Sound { clip, volume } => {
+                        let (clip, volume) = (clip.clone(), volume.unwrap_or(1.0));
+                        self.events
+                            .push(NarrativeEvent::SoundPlayed { clip, volume });
                         self.beat_index += 1;
                     }
                 }

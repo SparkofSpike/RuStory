@@ -48,6 +48,23 @@ pub enum Beat {
     HideActor { actor: ActorId },
     /// Replace the background image. `None` clears it.
     SetBackground { image: Option<String> },
+    /// Start, change or stop the music. `None` silences it.
+    ///
+    /// `fade_ms` is how long the change takes; zero or absent means instantly. A track name
+    /// is a file stem that the host resolves, exactly like a background image: the core has
+    /// no opinion about file formats or where audio lives.
+    Music {
+        track: Option<String>,
+        #[serde(default)]
+        fade_ms: Option<u32>,
+    },
+    /// Play a one-shot sound. Not remembered: a sound effect is an event, not a state, so
+    /// loading a save in the middle of a line does not replay a door slam.
+    Sound {
+        clip: String,
+        #[serde(default)]
+        volume: Option<f32>,
+    },
 }
 
 /// A branch the player can pick.
