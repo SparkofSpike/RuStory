@@ -3,7 +3,9 @@ name = "rustory-editor"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
+publish = false
 description = "RuStory visual editor: edit stories as forms, preview with the real engine."
 
 [[bin]]

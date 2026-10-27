@@ -87,6 +87,12 @@ decision, and the consequences. Number it after the highest existing one. Then u
 
 An ADR that lists only the option that was chosen is not an ADR.
 
+## Releasing
+
+[`docs/releasing.md`](releasing.md) is the checklist for the day a crate is published, and
+an honest list of what blocks it today. It is written down early because most of it is a fact
+that is annoying to rediscover under pressure.
+
 ## Reporting a problem
 
 Include the command you ran, the output you got and the output you expected. If it is a

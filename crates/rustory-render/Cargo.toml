@@ -3,6 +3,7 @@ name = "rustory-render"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 description = "RuStory renderer: a 2D quad and text pipeline on wgpu. Consumes a draw list, knows nothing about stories."
 

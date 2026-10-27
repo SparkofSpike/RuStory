@@ -18,6 +18,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.87"
 repository = "https://github.com/SparkofSpike/RuStory"
+homepage = "https://github.com/SparkofSpike/RuStory"
 description = "RuStory — Rust-native visual novel engine with composable gameplay"
 
 [workspace.dependencies]

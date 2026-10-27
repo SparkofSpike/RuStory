@@ -3,6 +3,7 @@ name = "rustory-edit"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 description = "RuStory editor operations: a typed, UI-independent layer for editing stories. Shared by the GUI and the agent CLI."
 
