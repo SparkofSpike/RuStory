@@ -76,3 +76,102 @@ pub enum EditError {
     #[error("cannot write {path}: {message}")]
     Write { path: String, message: String },
 }
+
+impl EditError {
+    /// A stable identifier for this failure.
+    ///
+    /// The message is for a person: it names nodes and explains what to do. A program cannot
+    /// branch on prose, and a program that regexes English breaks the moment the wording
+    /// improves. These strings are part of the interface — renaming one is a breaking change,
+    /// and a test pins that every variant has a distinct one.
+    #[must_use]
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::NoSuchNode(_) => "no_such_node",
+            Self::NodeExists(_) => "node_exists",
+            Self::BeatOutOfRange { .. } => "beat_out_of_range",
+            Self::NoChoices(_) => "no_choices",
+            Self::NoGameplay(_) => "no_gameplay",
+            Self::NoSuchOutcome { .. } => "no_such_outcome",
+            Self::ChoiceOutOfRange { .. } => "choice_out_of_range",
+            Self::CannotDeleteStart { .. } => "cannot_delete_start",
+            Self::CannotDeleteLast { .. } => "cannot_delete_last_node",
+            Self::NodeInUse { .. } => "node_in_use",
+            Self::CannotDeleteLastChoice { .. } => "cannot_delete_last_choice",
+            Self::EmptyNodeId(_) => "empty_node_id",
+            Self::WouldInvalidate(_) => "would_invalidate",
+            Self::Io { .. } => "io",
+            Self::Parse { .. } => "parse",
+            Self::Write { .. } => "write",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn every_variant() -> Vec<EditError> {
+        let node = NodeId::from("n");
+        vec![
+            EditError::NoSuchNode(node.clone()),
+            EditError::NodeExists(node.clone()),
+            EditError::BeatOutOfRange {
+                node: node.clone(),
+                index: 0,
+                count: 0,
+            },
+            EditError::NoChoices(node.clone()),
+            EditError::NoGameplay(node.clone()),
+            EditError::NoSuchOutcome {
+                node: node.clone(),
+                outcome: "win".into(),
+            },
+            EditError::ChoiceOutOfRange {
+                node: node.clone(),
+                index: 0,
+                count: 0,
+            },
+            EditError::CannotDeleteStart { node: node.clone() },
+            EditError::CannotDeleteLast { node: node.clone() },
+            EditError::NodeInUse {
+                node: node.clone(),
+                referrers: "start".into(),
+            },
+            EditError::CannotDeleteLastChoice { node: node.clone() },
+            EditError::EmptyNodeId(String::new()),
+            EditError::WouldInvalidate(CoreError::MissingStartNode("n".into())),
+            EditError::Io {
+                path: "p".into(),
+                message: "m".into(),
+            },
+            EditError::Parse {
+                path: "p".into(),
+                line: 1,
+                column: 1,
+                message: "m".into(),
+            },
+            EditError::Write {
+                path: "p".into(),
+                message: "m".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn every_failure_has_its_own_stable_code() {
+        let mut seen = std::collections::BTreeSet::new();
+        for error in every_variant() {
+            let code = error.code();
+            assert!(
+                seen.insert(code),
+                "`{code}` is used by more than one variant, so a caller cannot tell them apart"
+            );
+            assert!(
+                code.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "`{code}` is not a snake_case identifier"
+            );
+        }
+        assert_eq!(seen.len(), 16, "a variant was added without a code");
+    }
+}

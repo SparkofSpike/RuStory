@@ -639,15 +639,43 @@ fn edit_cmd(args: &[String]) -> Result<(), String> {
 
     let story_path = story_path.ok_or("edit needs a story path")?;
 
-    // Accepting both would make the order of application a guess.
+    // Accepting both would make the order of application a guess. Every early return below
+    // announces itself in the requested format: a caller that asked for JSON and got a
+    // sentence on stderr has to parse prose to find out what went wrong.
     let ops = match (single, batch) {
-        (Some(_), Some(_)) => return Err("use either --op or --ops, not both".into()),
-        (None, None) => return Err("edit needs --op <json> or --ops <file>".into()),
-        (Some(json), None) => vec![edit_cli::parse_op(&json)?],
+        (Some(_), Some(_)) => {
+            let message = "use either --op or --ops, not both".to_owned();
+            edit_cli::emit_failure_json(as_json, "bad_arguments", &message);
+            return Err(message);
+        }
+        (None, None) => {
+            let message = "edit needs --op <json> or --ops <file>".to_owned();
+            edit_cli::emit_failure_json(as_json, "bad_arguments", &message);
+            return Err(message);
+        }
+        (Some(json), None) => match edit_cli::parse_op(&json) {
+            Ok(op) => vec![op],
+            Err(message) => {
+                edit_cli::emit_failure_json(as_json, "invalid_operation", &message);
+                return Err(message);
+            }
+        },
         (None, Some(path)) => {
-            let text = std::fs::read_to_string(&path)
-                .map_err(|err| format!("cannot read {}: {err}", path.display()))?;
-            edit_cli::parse_ops(&text)?
+            let text = match std::fs::read_to_string(&path) {
+                Ok(text) => text,
+                Err(err) => {
+                    let message = format!("cannot read {}: {err}", path.display());
+                    edit_cli::emit_failure_json(as_json, "cannot_open", &message);
+                    return Err(message);
+                }
+            };
+            match edit_cli::parse_ops(&text) {
+                Ok(ops) => ops,
+                Err(message) => {
+                    edit_cli::emit_failure_json(as_json, "invalid_operation", &message);
+                    return Err(message);
+                }
+            }
         }
     };
 

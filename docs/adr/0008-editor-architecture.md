@@ -117,7 +117,7 @@ intermediate, and this ADR should be superseded.
 
 ## Verification
 
-- `cargo test --workspace` — 211 tests. `rustory-edit` contributes 46 of them, covering
+- `cargo test --workspace` — 231 tests. `rustory-edit` contributes 51 of them, covering
   every operation, every refusal, batch rollback, undo/redo, and a lossless save/reload
   round-trip including non-ASCII text.
 - `rustory ops --json` prints the operation vocabulary with `changes_structure` flags.

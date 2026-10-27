@@ -179,7 +179,7 @@ pub fn edit(path: &Path, ops: &[EditOp], write: bool, as_json: bool) -> Report {
     let mut editor = match Editor::open(path) {
         Ok(editor) => editor,
         Err(err) => {
-            emit_failure(as_json, &err.to_string());
+            emit_failure(as_json, "cannot_open", &err.to_string());
             return Report::failed(err.to_string());
         }
     };
@@ -187,7 +187,7 @@ pub fn edit(path: &Path, ops: &[EditOp], write: bool, as_json: bool) -> Report {
     match editor.apply_all(ops) {
         Ok(count) => {
             if write && let Err(err) = editor.save() {
-                emit_failure(as_json, &err.to_string());
+                emit_failure(as_json, "cannot_save", &err.to_string());
                 return Report::failed(err.to_string());
             }
 
@@ -224,8 +224,9 @@ pub fn edit(path: &Path, ops: &[EditOp], write: bool, as_json: bool) -> Report {
                     "{}",
                     serde_json::json!({
                         "ok": false,
+                        "code": source.code(),
                         "failed_at": index,
-                        "message": message,
+                        "message": source.to_string(),
                         "written": false,
                     })
                 );
@@ -235,11 +236,23 @@ pub fn edit(path: &Path, ops: &[EditOp], write: bool, as_json: bool) -> Report {
     }
 }
 
-fn emit_failure(as_json: bool, message: &str) {
-    if as_json {
-        println!("{}", serde_json::json!({"ok": false, "message": message}));
-    }
+pub fn emit_failure(as_json: bool, code: &str, message: &str) {
+    emit_failure_json(as_json, code, message);
     eprintln!("rustory: {message}");
+}
+
+/// Report a failure as JSON only, for callers whose command layer already prints the message.
+///
+/// Two functions rather than a flag because the two cases really differ: an operation refused
+/// mid-batch still needs a line on stderr, while a bad argument is printed by `main` on its way
+/// out, and doing both puts the same sentence on screen twice.
+pub fn emit_failure_json(as_json: bool, code: &str, message: &str) {
+    if as_json {
+        println!(
+            "{}",
+            serde_json::json!({"ok": false, "code": code, "message": message})
+        );
+    }
 }
 
 /// Parse one operation from JSON.

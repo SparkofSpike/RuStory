@@ -57,7 +57,7 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 230 tests, including offscreen GPU renders, colour round-trips, and 46 covering the editor operations
+- 231 tests, including offscreen GPU renders, colour round-trips, and 51 in `rustory-edit`
 
 Not yet: rollback history, WASM plugins, an authoring tool. Those have ADRs describing the
 plan, not code pretending to be one.
@@ -115,6 +115,11 @@ never written to disk.
 Every edit is **all or nothing**: `Editor::apply` either succeeds and leaves a valid
 document, or fails and leaves it byte-for-byte as it was. That is what makes the CLI
 safe to point an agent at.
+
+Failures are machine-readable as well: with `--json`, a refusal answers with a stable `code`
+beside the sentence — `node_in_use`, `no_such_node`, `would_invalidate`, `invalid_operation`,
+`bad_arguments` — so an agent can branch on the reason instead of parsing prose. The codes
+are part of the interface; a test asserts each failure has a distinct one.
 
 Deleting a node that is still referenced is refused, and the error names every
 referrer. Deleting the last choice of a branch is refused rather than silently
@@ -204,7 +209,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 230 tests; render tests skip without a GPU
+cargo test --workspace      # 231 tests; render tests skip without a GPU
 cargo run -p rustory -- probe
 ```
 
