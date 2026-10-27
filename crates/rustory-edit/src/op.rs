@@ -108,6 +108,17 @@ pub enum EditOp {
     /// does without saying so.
     DeleteChoice { node: NodeId, index: usize },
 
+    /// Move an option within its list.
+    ///
+    /// Order is the order the player reads, so it is part of the writing, not a detail of
+    /// storage. Same destination rule as [`EditOp::MoveBeat`]: `to` is the index the option
+    /// would occupy before the move, and `to == len` appends.
+    MoveChoice {
+        node: NodeId,
+        from: usize,
+        to: usize,
+    },
+
     // --- gameplay outcomes -------------------------------------------------
     /// Map a gameplay outcome key to a node, adding or replacing the mapping.
     ///
@@ -149,6 +160,7 @@ impl EditOp {
                 | Self::SetExit { .. }
                 | Self::AddChoice { .. }
                 | Self::DeleteChoice { .. }
+                | Self::MoveChoice { .. }
                 | Self::SetOutcome { .. }
                 | Self::DeleteOutcome { .. }
         )
@@ -230,6 +242,9 @@ impl EditOp {
             Self::AddChoice { node, .. } => format!("add choice to {node}"),
             Self::UpdateChoice { node, index, .. } => format!("edit choice {index} in {node}"),
             Self::DeleteChoice { node, index } => format!("delete choice {index} in {node}"),
+            Self::MoveChoice { node, from, to } => {
+                format!("move choice {from} to {to} in {node}")
+            }
             Self::SetOutcome { node, outcome, to } => {
                 format!("map outcome {outcome} to {to} in {node}")
             }

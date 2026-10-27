@@ -1273,3 +1273,147 @@ fn retyping_an_ending_name_is_one_undo_step() {
         "the exit form is one field, so one undo step"
     );
 }
+
+// --- choice order -------------------------------------------------------
+
+/// `pick` offers three options to `a`, `b` and `c`.
+fn picky() -> Editor {
+    editor_of(story_with(
+        vec![
+            (
+                "pick",
+                Node {
+                    beats: vec![say("choose")],
+                    exit: Exit::Choose {
+                        prompt: None,
+                        choices: vec![
+                            Choice {
+                                label: "first".into(),
+                                to: NodeId::from("a"),
+                            },
+                            Choice {
+                                label: "second".into(),
+                                to: NodeId::from("b"),
+                            },
+                            Choice {
+                                label: "third".into(),
+                                to: NodeId::from("c"),
+                            },
+                        ],
+                    },
+                },
+            ),
+            (
+                "a",
+                Node {
+                    beats: vec![],
+                    exit: Exit::End { ending: None },
+                },
+            ),
+            (
+                "b",
+                Node {
+                    beats: vec![],
+                    exit: Exit::End { ending: None },
+                },
+            ),
+            (
+                "c",
+                Node {
+                    beats: vec![],
+                    exit: Exit::End { ending: None },
+                },
+            ),
+        ],
+        "pick",
+    ))
+}
+
+fn labels(editor: &Editor) -> Vec<String> {
+    match &editor.story().nodes[&NodeId::from("pick")].exit {
+        Exit::Choose { choices, .. } => choices.iter().map(|c| c.label.clone()).collect(),
+        other => panic!("expected a choice exit, got {other:?}"),
+    }
+}
+
+#[test]
+fn moving_a_choice_down_swaps_it_with_the_next_one() {
+    let mut editor = picky();
+    editor
+        .apply(&EditOp::MoveChoice {
+            node: NodeId::from("pick"),
+            from: 0,
+            to: 2,
+        })
+        .expect("moves");
+
+    // `to` is the index the option would occupy before the move, exactly as for beats, so
+    // moving the first option to 2 puts it in the middle.
+    assert_eq!(labels(&editor), ["second", "first", "third"]);
+}
+
+#[test]
+fn moving_a_choice_up_swaps_it_with_the_previous_one() {
+    let mut editor = picky();
+    editor
+        .apply(&EditOp::MoveChoice {
+            node: NodeId::from("pick"),
+            from: 2,
+            to: 0,
+        })
+        .expect("moves");
+
+    assert_eq!(labels(&editor), ["third", "first", "second"]);
+}
+
+#[test]
+fn moving_a_choice_to_the_end_appends_it() {
+    let mut editor = picky();
+    editor
+        .apply(&EditOp::MoveChoice {
+            node: NodeId::from("pick"),
+            from: 0,
+            to: 3,
+        })
+        .expect("moves");
+
+    assert_eq!(labels(&editor), ["second", "third", "first"]);
+}
+
+#[test]
+fn moving_a_choice_out_of_range_is_refused_and_leaves_the_story_alone() {
+    let mut editor = picky();
+    let before = editor.story().clone();
+
+    let err = editor
+        .apply(&EditOp::MoveChoice {
+            node: NodeId::from("pick"),
+            from: 3,
+            to: 0,
+        })
+        .expect_err("out of range");
+    assert!(matches!(err, EditError::ChoiceOutOfRange { .. }), "{err}");
+    assert_eq!(editor.story(), &before, "a refusal changes nothing");
+
+    let err = editor
+        .apply(&EditOp::MoveChoice {
+            node: NodeId::from("pick"),
+            from: 0,
+            to: 4,
+        })
+        .expect_err("beyond the end");
+    assert!(matches!(err, EditError::ChoiceOutOfRange { .. }), "{err}");
+}
+
+#[test]
+fn reordering_a_node_that_offers_no_choices_is_refused() {
+    let mut editor = linked();
+    let err = editor
+        .apply(&EditOp::MoveChoice {
+            node: NodeId::from("a"),
+            from: 0,
+            to: 1,
+        })
+        .expect_err("a goto has no options");
+    assert!(matches!(err, EditError::NoChoices(_)), "{err}");
+}

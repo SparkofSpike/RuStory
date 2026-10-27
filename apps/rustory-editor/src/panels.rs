@@ -716,6 +716,26 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                             ui.label(format!("{}", index + 1));
                             ui.separator();
 
+                            // Order is what the player reads, so it is part of the writing.
+                            let total = choices.len();
+                            if ui.add_enabled(index > 0, egui::Button::new("Up")).clicked() {
+                                app.pending.push(EditOp::MoveChoice {
+                                    node: selected.clone(),
+                                    from: index,
+                                    to: index - 1,
+                                });
+                            }
+                            if ui
+                                .add_enabled(index + 1 < total, egui::Button::new("Dn"))
+                                .clicked()
+                            {
+                                app.pending.push(EditOp::MoveChoice {
+                                    node: selected.clone(),
+                                    from: index,
+                                    to: index + 2,
+                                });
+                            }
+
                             let mut label = choice.label.clone();
                             if ui
                                 .add(egui::TextEdit::singleline(&mut label).desired_width(200.0))
@@ -1367,4 +1387,3 @@ mod tests {
         assert!(!matches_filter(&NodeId::from("prologue"), "epilogue"));
     }
 }
-

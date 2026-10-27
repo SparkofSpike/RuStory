@@ -261,6 +261,36 @@ pub(crate) fn apply(story: &mut Story, op: &EditOp) -> Result<(), EditError> {
             choices.remove(*index);
         }
 
+        EditOp::MoveChoice { node, from, to } => {
+            let node_ref = story
+                .nodes
+                .get_mut(node)
+                .ok_or_else(|| EditError::NoSuchNode(node.clone()))?;
+            let Exit::Choose { choices, .. } = &mut node_ref.exit else {
+                return Err(EditError::NoChoices(node.clone()));
+            };
+            let count = choices.len();
+            if *from >= count {
+                return Err(EditError::ChoiceOutOfRange {
+                    node: node.clone(),
+                    index: *from,
+                    count,
+                });
+            }
+            // `to == count` is a legal destination: it means "move to the end".
+            if *to > count {
+                return Err(EditError::ChoiceOutOfRange {
+                    node: node.clone(),
+                    index: *to,
+                    count,
+                });
+            }
+            let choice = choices.remove(*from);
+            // Removing earlier shifts the insertion point left, exactly as in `MoveBeat`.
+            let target = if *to > *from { *to - 1 } else { *to };
+            choices.insert(target, choice);
+        }
+
         EditOp::SetOutcome { node, outcome, to } => {
             let node_ref = story
                 .nodes

@@ -134,6 +134,11 @@ pub fn catalogue() -> Vec<OpInfo> {
                 "Remove an option from a node that offers choices.",
                 true,
             ),
+            E::MoveChoice { .. } => (
+                "MoveChoice",
+                "Reorder options. The order is the order the player reads.",
+                true,
+            ),
             E::SetOutcome { .. } => ("SetOutcome", "Map a gameplay outcome key to a node.", true),
             E::DeleteOutcome { .. } => {
                 ("DeleteOutcome", "Remove a gameplay outcome mapping.", true)
@@ -220,6 +225,11 @@ pub fn catalogue() -> Vec<OpInfo> {
         E::DeleteChoice {
             node: NodeId::from("prologue"),
             index: 0,
+        },
+        E::MoveChoice {
+            node: NodeId::from("prologue"),
+            from: 0,
+            to: 1,
         },
         E::SetOutcome {
             node: NodeId::from("confession"),
