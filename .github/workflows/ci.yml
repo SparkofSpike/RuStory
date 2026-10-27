@@ -47,13 +47,13 @@ jobs:
         with:
           components: clippy
 
-      # winit needs xkbcommon and wayland headers to compile on Linux. wgpu itself is pure
-      # Rust; the driver is only needed at run time, and the tests skip when it is missing.
-      - name: Install windowing headers
+      # Compile-time system dependencies: winit needs xkbcommon and wayland headers, cpal
+      # needs ALSA headers. wgpu is pure Rust, and its driver is only needed at run time.
+      - name: Install system headers
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libxkbcommon-dev libwayland-dev pkg-config
+            libxkbcommon-dev libwayland-dev libasound2-dev pkg-config
 
       - uses: Swatinem/rust-cache@v2
 
@@ -68,11 +68,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install windowing headers
+      - name: Install system headers
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libxkbcommon-dev libwayland-dev pkg-config
+            libxkbcommon-dev libwayland-dev libasound2-dev pkg-config
       - uses: Swatinem/rust-cache@v2
 
       # Every command below appears in README.md or in `--help`. A documented command that
@@ -96,8 +96,26 @@ jobs:
           cargo run -q -p rustory -- edit stories/demo.ron \
             --op '{"op":"SetTitle","title":"Checked"}' --dry-run
 
-      - name: Generate the placeholder art
+      - name: Generate the placeholder art and sound
         run: cargo run -q -p rustory -- gen-assets assets
+
+      # Two things at once: the generated WAV is a real container, and the bank indexes it.
+      # A silent engine would still pass the rest of this workflow, so the audio path needs
+      # a check of its own.
+      - name: The generated sound is a valid WAV and is indexed
+        run: |
+          cargo run -q -p rustory -- probe | tee /tmp/probe.txt
+          grep -q "audio files: 3" /tmp/probe.txt
+          python3 - <<'PY'
+          import struct
+          data = open('assets/audio/classroom.wav', 'rb').read()
+          assert data[:4] == b'RIFF' and data[8:12] == b'WAVE', 'not a WAV'
+          rate, = struct.unpack('<I', data[24:28])
+          assert rate == 22050, rate
+          seconds = (len(data) - 44) / (rate * 2)
+          assert 3.9 < seconds < 4.1, seconds
+          print(f'{len(data)} bytes, {seconds:.1f}s at {rate} Hz')
+          PY
 
       - name: Render a frame by position
         run: cargo run -q -p rustory -- shot stories/demo.ron --at honest:2 --out /tmp/frame.png
