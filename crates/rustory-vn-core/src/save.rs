@@ -21,7 +21,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::gameplay::Stats;
+use crate::gameplay::{ChoiceMade, Stats};
 use crate::ids::{NodeId, SystemId};
 use crate::narrative::Mode;
 use crate::stage::Stage;
@@ -67,6 +67,16 @@ pub struct SaveState {
     /// were.
     #[serde(default)]
     pub music: Option<String>,
+    /// Nodes entered so far, oldest first, repeats included.
+    ///
+    /// Defaulted for the same reason `music` is: a save written before this existed describes
+    /// a story with no history, which is what it had. A gameplay resumed from such a save sees
+    /// an empty visit list rather than refusing to load.
+    #[serde(default)]
+    pub visited: Vec<NodeId>,
+    /// Branches taken so far, oldest first.
+    #[serde(default)]
+    pub choices: Vec<ChoiceMade>,
     /// Shared counters.
     pub stats: Stats,
     /// Present only when the save was taken while a gameplay system had control.
@@ -112,6 +122,8 @@ mod tests {
             revealed: 17,
             stage: Stage::default(),
             music: Some("classroom".to_owned()),
+            visited: vec![NodeId::from("a")],
+            choices: Vec::new(),
             stats,
             gameplay: None,
         }

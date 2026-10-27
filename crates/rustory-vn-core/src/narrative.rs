@@ -31,7 +31,9 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::error::CoreError;
 use crate::event::{NarrativeEvent, TickReport};
-use crate::gameplay::{GameplayContext, GameplayInput, GameplayRegistry, Stats};
+use crate::gameplay::{
+    ChoiceMade, GameplayContext, GameplayInput, GameplayRegistry, NarrativeSnapshot, Stats,
+};
 use crate::ids::{ActorId, NodeId, OutcomeKey, SystemId};
 use crate::save::{GameplaySave, SAVE_VERSION, SaveState};
 use crate::stage::Stage;
@@ -103,6 +105,11 @@ pub struct Narrative {
     /// that only watched events would have no idea what was playing when the file was
     /// written.
     music: Option<String>,
+    /// Nodes entered so far, oldest first, repeats included. Read by gameplay through
+    /// `NarrativeSnapshot` and stored in saves so "second visit" survives a resume.
+    visited: Vec<NodeId>,
+    /// Branches taken so far, oldest first.
+    choices_made: Vec<ChoiceMade>,
     events: Vec<NarrativeEvent>,
 }
 
@@ -152,6 +159,8 @@ impl Narrative {
             revealed: 0,
             gameplay_begun: false,
             music: None,
+            visited: Vec::new(),
+            choices_made: Vec::new(),
             events: Vec::new(),
         };
         narrative.enter_node(start)?;
@@ -191,6 +200,8 @@ impl Narrative {
             revealed: self.revealed,
             stage: self.stage.clone(),
             music: self.music.clone(),
+            visited: self.visited.clone(),
+            choices: self.choices_made.clone(),
             stats: self.stats.clone(),
             gameplay,
         })
@@ -254,6 +265,8 @@ impl Narrative {
             revealed: save.revealed,
             gameplay_begun: false,
             music: save.music.clone(),
+            visited: save.visited.clone(),
+            choices_made: save.choices.clone(),
             events: Vec::new(),
         };
 
@@ -278,7 +291,8 @@ impl Narrative {
 
                 // `begin` first so config-derived invariants hold, then `restore`
                 // for whatever changed during play.
-                system.begin(spec.config.as_ref())?;
+                let snapshot = narrative.snapshot();
+                system.begin(spec.config.as_ref(), &snapshot)?;
                 system.restore(saved.state.as_ref())?;
                 narrative.gameplay_begun = true;
             }
@@ -481,6 +495,10 @@ impl Narrative {
         };
 
         let target = choice.to.clone();
+        self.choices_made.push(ChoiceMade {
+            node: self.cursor.clone(),
+            index,
+        });
         self.push_event(NarrativeEvent::ChoiceTaken {
             node: self.cursor.clone(),
             index,
@@ -513,8 +531,12 @@ impl Narrative {
                     system: system_id.to_string(),
                 })?;
 
+        // Owned, so it can be borrowed immutably while `stats` is borrowed mutably below:
+        // two fields of `self` are disjoint, but a method call on all of `self` is not.
+        let snapshot = self.snapshot();
+
         if !self.gameplay_begun {
-            system.begin(spec.config.as_ref())?;
+            system.begin(spec.config.as_ref(), &snapshot)?;
             self.gameplay_begun = true;
         }
 
@@ -525,6 +547,7 @@ impl Narrative {
                 dt_ms,
                 inputs,
                 stats: &mut self.stats,
+                narrative: &snapshot,
             };
             system.step(&mut ctx)
         };
@@ -533,6 +556,21 @@ impl Narrative {
             self.resolve_gameplay(&system_id, &spec, outcome)?;
         }
         Ok(())
+    }
+
+    /// Where the story is, as a gameplay system may see it.
+    ///
+    /// Owned rather than borrowed: the caller needs it while mutating `stats`, which is another
+    /// field of the same struct.
+    #[must_use]
+    pub fn snapshot(&self) -> NarrativeSnapshot {
+        NarrativeSnapshot {
+            node: self.cursor.clone(),
+            beat_index: self.beat_index,
+            beat_count: self.current_node().beats.len(),
+            visited: self.visited.clone(),
+            choices: self.choices_made.clone(),
+        }
     }
 
     /// A short prompt from the active gameplay system, if it has one.
@@ -586,6 +624,7 @@ impl Narrative {
             });
         }
         self.cursor = id.clone();
+        self.visited.push(id.clone());
         self.beat_index = 0;
         self.reveal_accum_ms = 0.0;
         self.revealed = 0;
@@ -669,7 +708,8 @@ impl Narrative {
                     return Ok(());
                 }
                 Exit::Goto { to } => {
-                    self.cursor = to;
+                    self.cursor = to.clone();
+                    self.visited.push(to);
                     self.beat_index = 0;
                     self.reveal_accum_ms = 0.0;
                     self.revealed = 0;

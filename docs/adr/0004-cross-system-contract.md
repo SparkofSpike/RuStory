@@ -1,6 +1,7 @@
 # ADR 0004 — Cross-system contract: events outward, narrow state inward
 
-- **Status**: Accepted, implemented
+- **Status**: Accepted, implemented. Extended by [0012](0012-gameplay-sees-the-story.md):
+  the context also carries a read-only `NarrativeSnapshot`.
 - **Date**: 2026-10-26
 - **Open question**: how do narrative and gameplay share state?
 
@@ -44,11 +45,16 @@ pub struct GameplayContext<'a> {
     pub dt_ms: u32,                  // how long this frame took
     pub inputs: &'a [GameplayInput], // input intents, already translated
     pub stats: &'a mut Stats,        // the only shared writable state
+    pub narrative: &'a NarrativeSnapshot, // read-only, see ADR 0012
 }
 ```
 
 **Not reachable**: the stage (background, sprites), the story graph, the renderer,
 the window. Not by convention — by type. None of those exist in the struct.
+
+`NarrativeSnapshot` was added later, when a system needed to know which visit it was
+on. It is owned and read-only precisely so the "not reachable" line above stays true:
+a system can see where the story is, and still cannot move it.
 
 ### 3. Gameplay → narrative: `OutcomeKey`
 

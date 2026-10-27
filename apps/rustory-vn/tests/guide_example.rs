@@ -9,7 +9,8 @@
 //! (imports, a test function) added.
 
 use rustory_vn_core::{
-    CoreError, GameplayContext, GameplayInput, GameplaySystem, OutcomeKey, Stats, SystemId,
+    CoreError, GameplayContext, GameplayInput, GameplaySystem, NarrativeSnapshot, NodeId,
+    OutcomeKey, Stats, SystemId,
 };
 use serde::Deserialize;
 
@@ -60,7 +61,13 @@ impl GameplaySystem for MySystem {
         SystemId::from("my.system")
     }
 
-    fn begin(&mut self, config: Option<&ron::Value>) -> Result<(), CoreError> {
+    fn begin(
+        &mut self,
+        config: Option<&ron::Value>,
+        // The story's position at the handover. This system does not look, but a system
+        // whose rules depend on what the player has read would.
+        _narrative: &NarrativeSnapshot,
+    ) -> Result<(), CoreError> {
         let parsed = MyConfig::from_value(config).map_err(|message| CoreError::GameplayFailed {
             system: "my.system".to_owned(),
             message,
@@ -100,12 +107,29 @@ impl GameplaySystem for MySystem {
     }
 }
 
+/// The story's position at the handover, as the guide shows it being passed in.
+///
+/// Filled by a real `Narrative` in production; a literal here so the example stays about the
+/// system and not about building a story to embed it in.
+fn position() -> NarrativeSnapshot {
+    NarrativeSnapshot {
+        node: NodeId::from("debate"),
+        beat_index: 2,
+        beat_count: 3,
+        visited: vec![NodeId::from("debate")],
+        choices: Vec::new(),
+    }
+}
+
 #[test]
 fn the_guide_example_compiles_and_behaves_as_documented() {
     let config: ron::Value = ron::from_str("(rounds: 100)").expect("config parses");
 
+    let snapshot = position();
     let mut system = MySystem::new();
-    system.begin(Some(&config)).expect("valid config");
+    system
+        .begin(Some(&config), &snapshot)
+        .expect("valid config");
 
     // Confirming wins over the clock, as the guide states.
     let mut stats = Stats::default();
@@ -113,18 +137,23 @@ fn the_guide_example_compiles_and_behaves_as_documented() {
         dt_ms: 16,
         inputs: &[GameplayInput::Confirm],
         stats: &mut stats,
+        narrative: &snapshot,
     });
     assert_eq!(outcome, Some(OutcomeKey::from("confirmed")));
     assert_eq!(stats.get("my.system.confirms"), 1);
 
     // And the clock path reaches its documented outcome.
+    let snapshot = position();
     let mut system = MySystem::new();
-    system.begin(Some(&config)).expect("valid config");
+    system
+        .begin(Some(&config), &snapshot)
+        .expect("valid config");
     let mut stats = Stats::default();
     let outcome = system.step(&mut GameplayContext {
         dt_ms: 100,
         inputs: &[],
         stats: &mut stats,
+        narrative: &snapshot,
     });
     assert_eq!(outcome, Some(OutcomeKey::from("expired")));
 }
@@ -134,7 +163,9 @@ fn the_guide_example_rejects_a_bad_config_before_touching_state() {
     let bad: ron::Value = ron::from_str("(rounds: 0)").expect("parses");
 
     let mut system = MySystem::new();
-    let err = system.begin(Some(&bad)).expect_err("must reject");
+    let err = system
+        .begin(Some(&bad), &position())
+        .expect_err("must reject");
     assert!(
         matches!(err, CoreError::GameplayFailed { .. }),
         "unexpected error: {err}"

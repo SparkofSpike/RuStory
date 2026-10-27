@@ -141,7 +141,11 @@ impl GameplaySystem for TimedChoice {
         SystemId::from(SYSTEM_ID)
     }
 
-    fn begin(&mut self, config: Option<&ron::Value>) -> Result<(), CoreError> {
+    fn begin(
+        &mut self,
+        config: Option<&ron::Value>,
+        _narrative: &NarrativeSnapshot,
+    ) -> Result<(), CoreError> {
         // Validation happens before any state is touched, so a rejected config
         // leaves nothing half-initialized for the next scene to inherit.
         let parsed = TimerConfig::from_value(config).map_err(|err| CoreError::GameplayFailed {
@@ -272,6 +276,19 @@ mod tests {
         .expect("test config parses")
     }
 
+    /// A snapshot with nothing in it: these tests are about the system's own rules, and none of
+    /// them consult the story's position. One is still required, because a real system could.
+    fn snapshot() -> &'static NarrativeSnapshot {
+        static ONCE: std::sync::OnceLock<NarrativeSnapshot> = std::sync::OnceLock::new();
+        ONCE.get_or_init(|| NarrativeSnapshot {
+            node: NodeId::from("test"),
+            beat_index: 0,
+            beat_count: 0,
+            visited: Vec::new(),
+            choices: Vec::new(),
+        })
+    }
+
     fn ctx<'a>(
         dt_ms: u32,
         inputs: &'a [GameplayInput],
@@ -281,6 +298,7 @@ mod tests {
             dt_ms,
             inputs,
             stats,
+            narrative: snapshot(),
         }
     }
 
@@ -288,7 +306,7 @@ mod tests {
     fn picking_the_right_option_reports_correct() {
         let mut system = TimedChoice::new();
         system
-            .begin(Some(&config_value()))
+            .begin(Some(&config_value()), snapshot())
             .expect("config is valid");
         let mut stats = Stats::default();
 
@@ -306,7 +324,7 @@ mod tests {
     fn picking_a_wrong_option_reports_wrong_without_counting_a_success() {
         let mut system = TimedChoice::new();
         system
-            .begin(Some(&config_value()))
+            .begin(Some(&config_value()), snapshot())
             .expect("config is valid");
         let mut stats = Stats::default();
 
@@ -324,7 +342,7 @@ mod tests {
     fn running_out_of_time_reports_timeout() {
         let mut system = TimedChoice::new();
         system
-            .begin(Some(&config_value()))
+            .begin(Some(&config_value()), snapshot())
             .expect("config is valid");
         let mut stats = Stats::default();
 
@@ -340,7 +358,7 @@ mod tests {
     fn an_answer_on_the_expiry_frame_counts_as_in_time() {
         let mut system = TimedChoice::new();
         system
-            .begin(Some(&config_value()))
+            .begin(Some(&config_value()), snapshot())
             .expect("config is valid");
         let mut stats = Stats::default();
 
@@ -361,7 +379,7 @@ mod tests {
     fn an_option_index_this_system_never_showed_is_ignored() {
         let mut system = TimedChoice::new();
         system
-            .begin(Some(&config_value()))
+            .begin(Some(&config_value()), snapshot())
             .expect("config is valid");
         let mut stats = Stats::default();
 
@@ -377,7 +395,7 @@ mod tests {
     #[test]
     fn a_missing_config_fails_before_mutating_state() {
         let mut system = TimedChoice::new();
-        assert!(system.begin(None).is_err());
+        assert!(system.begin(None, snapshot()).is_err());
         assert!(system.config().is_none());
     }
 
@@ -386,7 +404,9 @@ mod tests {
         let bad: ron::Value =
             ron::from_str(r#"(duration_ms: 100, options: ["a"], correct: 5)"#).expect("parses");
         let mut system = TimedChoice::new();
-        let err = system.begin(Some(&bad)).expect_err("must reject");
+        let err = system
+            .begin(Some(&bad), snapshot())
+            .expect_err("must reject");
         assert!(matches!(err, CoreError::GameplayFailed { .. }));
     }
 
@@ -394,7 +414,7 @@ mod tests {
     fn cancel_clears_everything_so_the_next_begin_is_clean() {
         let mut system = TimedChoice::new();
         system
-            .begin(Some(&config_value()))
+            .begin(Some(&config_value()), snapshot())
             .expect("config is valid");
         let mut stats = Stats::default();
         system.step(&mut ctx(
@@ -413,7 +433,7 @@ mod tests {
     fn the_prompt_reports_the_time_left_and_the_options() {
         let mut system = TimedChoice::new();
         system
-            .begin(Some(&config_value()))
+            .begin(Some(&config_value()), snapshot())
             .expect("config is valid");
         let prompt = system.prompt().expect("prompt");
         assert!(prompt.contains("1.0s"), "got {prompt}");

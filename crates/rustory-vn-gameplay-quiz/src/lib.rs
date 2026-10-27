@@ -217,7 +217,11 @@ impl GameplaySystem for Quiz {
         SystemId::from(SYSTEM_ID)
     }
 
-    fn begin(&mut self, config: Option<&ron::Value>) -> Result<(), CoreError> {
+    fn begin(
+        &mut self,
+        config: Option<&ron::Value>,
+        _narrative: &NarrativeSnapshot,
+    ) -> Result<(), CoreError> {
         // Validate before touching state, so a rejected handover leaves nothing
         // half-initialised for the next scene.
         let parsed = QuizConfig::from_value(config).map_err(|err| CoreError::GameplayFailed {
@@ -375,6 +379,19 @@ mod tests {
         .expect("test config parses")
     }
 
+    /// A snapshot with nothing in it: these tests exercise the system's own rules, and none of
+    /// them consult the story's position. One is still required, because a real system could.
+    fn snapshot() -> &'static NarrativeSnapshot {
+        static ONCE: std::sync::OnceLock<NarrativeSnapshot> = std::sync::OnceLock::new();
+        ONCE.get_or_init(|| NarrativeSnapshot {
+            node: NodeId::from("test"),
+            beat_index: 0,
+            beat_count: 0,
+            visited: Vec::new(),
+            choices: Vec::new(),
+        })
+    }
+
     fn ctx<'a>(
         dt_ms: u32,
         inputs: &'a [GameplayInput],
@@ -384,6 +401,7 @@ mod tests {
             dt_ms,
             inputs,
             stats,
+            narrative: snapshot(),
         }
     }
 
@@ -395,7 +413,8 @@ mod tests {
     #[test]
     fn a_perfect_run_reports_perfect() {
         let mut quiz = Quiz::new();
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
         let mut stats = Stats::default();
 
         assert_eq!(answer(&mut quiz, 0, &mut stats), None);
@@ -410,7 +429,8 @@ mod tests {
     #[test]
     fn a_mostly_wrong_run_reports_failed() {
         let mut quiz = Quiz::new();
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
         let mut stats = Stats::default();
 
         answer(&mut quiz, 1, &mut stats); // wrong
@@ -424,7 +444,8 @@ mod tests {
     #[test]
     fn one_right_out_of_three_fails_because_the_threshold_is_half() {
         let mut quiz = Quiz::new();
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
         let mut stats = Stats::default();
 
         answer(&mut quiz, 0, &mut stats); // right
@@ -441,7 +462,8 @@ mod tests {
     #[test]
     fn the_prompt_reports_progress_question_and_options() {
         let mut quiz = Quiz::new();
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
 
         let prompt = quiz.prompt().expect("prompt");
         assert!(prompt.contains("[1/3]"), "got {prompt}");
@@ -458,7 +480,8 @@ mod tests {
     #[test]
     fn confirm_does_not_advance_a_quiz() {
         let mut quiz = Quiz::new();
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
         let mut stats = Stats::default();
 
         let outcome = quiz.step(&mut ctx(16, &[GameplayInput::Confirm], &mut stats));
@@ -474,7 +497,8 @@ mod tests {
     #[test]
     fn an_option_index_this_round_never_offered_is_ignored() {
         let mut quiz = Quiz::new();
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
         let mut stats = Stats::default();
 
         let outcome = answer(&mut quiz, 9, &mut stats);
@@ -487,14 +511,14 @@ mod tests {
     fn a_bad_config_is_rejected_before_state_changes() {
         let empty_rounds: ron::Value = ron::from_str("(rounds: [])").expect("parses");
         let mut quiz = Quiz::new();
-        assert!(quiz.begin(Some(&empty_rounds)).is_err());
+        assert!(quiz.begin(Some(&empty_rounds), snapshot()).is_err());
         assert!(quiz.config().is_none());
         assert_eq!(quiz.current_round(), 0);
 
         let bad_index: ron::Value =
             ron::from_str("(rounds: [(question: \"q\", options: [\"a\"], correct: 4)])")
                 .expect("parses");
-        assert!(quiz.begin(Some(&bad_index)).is_err());
+        assert!(quiz.begin(Some(&bad_index), snapshot()).is_err());
         assert!(quiz.config().is_none());
     }
 
@@ -503,14 +527,17 @@ mod tests {
     #[test]
     fn a_half_finished_quiz_saves_and_resumes_at_the_same_round() {
         let mut quiz = Quiz::new();
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
         let mut stats = Stats::default();
 
         answer(&mut quiz, 0, &mut stats); // round 1 answered
         let saved = quiz.save().expect("saves").expect("stateful");
 
         let mut resumed = Quiz::new();
-        resumed.begin(Some(&config_ron())).expect("valid config");
+        resumed
+            .begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
         assert_eq!(resumed.current_round(), 0, "begin alone starts over");
 
         resumed.restore(Some(&saved)).expect("restores");
@@ -528,7 +555,8 @@ mod tests {
     #[test]
     fn restoring_rejects_a_round_index_beyond_the_config() {
         let mut quiz = Quiz::new();
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
 
         let bogus = encode_state(&QuizState {
             current: 9,
@@ -546,7 +574,8 @@ mod tests {
     #[test]
     fn restoring_rejects_an_answer_count_that_disagrees_with_the_round_index() {
         let mut quiz = Quiz::new();
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
 
         let bogus = encode_state(&QuizState {
             current: 2,
@@ -570,14 +599,16 @@ mod tests {
     #[test]
     fn cancel_clears_progress_so_a_replay_starts_fresh() {
         let mut quiz = Quiz::new();
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
         answer(&mut quiz, 0, &mut Stats::default());
 
         quiz.cancel();
         assert_eq!(quiz.current_round(), 0);
         assert!(quiz.answers().is_empty());
 
-        quiz.begin(Some(&config_ron())).expect("valid config");
+        quiz.begin(Some(&config_ron()), snapshot())
+            .expect("valid config");
         assert_eq!(quiz.current_round(), 0, "begin resets after cancel");
     }
 }

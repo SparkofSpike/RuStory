@@ -399,7 +399,11 @@ impl GameplaySystem for Countdown {
         SystemId::from("test.countdown")
     }
 
-    fn begin(&mut self, config: Option<&ron::Value>) -> Result<(), CoreError> {
+    fn begin(
+        &mut self,
+        config: Option<&ron::Value>,
+        _narrative: &NarrativeSnapshot,
+    ) -> Result<(), CoreError> {
         let Some(value) = config else {
             self.ticks_left = 1;
             return Ok(());

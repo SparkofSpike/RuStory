@@ -116,8 +116,11 @@ before changing one.
    the cost of every test by an order of magnitude.
 
 2. **A gameplay system cannot reach the stage, the story graph or the renderer.**
-   It receives `GameplayContext { dt_ms, inputs, &mut Stats }` and nothing else.
-   Need more? Change the contract, and write the ADR first.
+   It receives `GameplayContext { dt_ms, inputs, &mut Stats, &NarrativeSnapshot }`
+   and nothing else. The snapshot is a copy: a system can see which node and beat
+   the story is on, and which nodes and choices came before, but there is no path
+   from it back into the graph. Need more? Change the contract, and write the ADR
+   first.
 
 3. **Adding a gameplay system does not modify `rustory-vn-core`.**
    If it does, the contract is wrong. Fix the contract.
@@ -221,9 +224,11 @@ GPU is an environment fact, not a regression.
 - **No audio mixing.** One music track plus one-shot effects, both driven by beats. Layered
   ambience needs a mixer, and a mixer written before a story asks for one is speculative. See
   ADR 0009.
-- **No channel for gameplay to read narrative state.** A system cannot tell which
-  dialogue round it is in; it has to be passed that through config. When this is
-  needed, add a read-only snapshot — do not open up `Narrative`.
+- **No structured channel for gameplay to draw itself.** A system expresses itself
+  through `prompt() -> Option<String>`: one text block, drawn by the engine. A
+  countdown and a quiz fit. A board, a highlighted cursor or a drag target does
+  not. See ADR 0012 for the one thing that gap no longer includes — reading the
+  story — and ADR 0004 for the rest.
 - **`--advance` counts interactions, not positions.** One interaction can span two
   states (finishing a line, then advancing a beat), and inside a gameplay system it
   plays the whole thing to completion, always choosing the first option. `shot --at

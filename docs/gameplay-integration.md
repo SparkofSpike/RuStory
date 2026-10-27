@@ -14,7 +14,8 @@ registration line in `driver.rs`, and reference it from a script with a
 ```rust
 pub trait GameplaySystem {
     fn id(&self) -> SystemId;
-    fn begin(&mut self, config: Option<&ron::Value>) -> Result<(), CoreError>;
+    fn begin(&mut self, config: Option<&ron::Value>, narrative: &NarrativeSnapshot)
+        -> Result<(), CoreError>;
     fn step(&mut self, ctx: &mut GameplayContext<'_>) -> Option<OutcomeKey>;
     fn cancel(&mut self);
     fn prompt(&self) -> Option<String> { None }
@@ -42,13 +43,34 @@ This is **everything** `step` can reach:
 ```rust
 pub struct GameplayContext<'a> {
     pub dt_ms: u32,
-    pub inputs: &'a [GameplayInput],   // Confirm | Select { index }
-    pub stats: &'a mut Stats,          // BTreeMap<String, i32>
+    pub inputs: &'a [GameplayInput],        // Confirm | Select { index }
+    pub stats: &'a mut Stats,               // BTreeMap<String, i32>, writable
+    pub narrative: &'a NarrativeSnapshot,   // read-only, see below
 }
 ```
 
-The stage, the story graph, the renderer, the window — none of them are in there.
-That is not a convention. It is type-level isolation.
+`NarrativeSnapshot` is where the story is, copied at the handover:
+
+```rust
+pub struct NarrativeSnapshot {
+    pub node: NodeId,             // the node that handed over
+    pub beat_index: usize,        // where in that node
+    pub beat_count: usize,
+    pub visited: Vec<NodeId>,     // every node entered, repeats included
+    pub choices: Vec<ChoiceMade>, // every branch taken, in order
+}
+```
+
+Two questions it answers, both of which used to need a hand-rolled counter in `Stats` that
+nothing kept in step with the story: `visits(node)` for "is this the second time", and
+`has_visited(node)` for "has the player seen the scene that explains the rule".
+
+It is **read-only and owned**. A system can see where the story is; it cannot change it, and it
+cannot reach the graph, the stage or the renderer. The only way a gameplay affects what happens
+next is by reporting an `OutcomeKey`. That is not a convention. It is type-level isolation.
+
+`begin` receives the same snapshot, because a system that varies its content by context has to
+choose before the first frame, not after it.
 
 ---
 
@@ -122,7 +144,13 @@ impl GameplaySystem for MySystem {
         SystemId::from("my.system")
     }
 
-    fn begin(&mut self, config: Option<&ron::Value>) -> Result<(), CoreError> {
+    fn begin(
+        &mut self,
+        config: Option<&ron::Value>,
+        // Read-only view of where the story is: which node, which beat, what was
+        // visited, what was chosen. See "Snapshots" below.
+        _narrative: &NarrativeSnapshot,
+    ) -> Result<(), CoreError> {
         // Validate first, then mutate: a rejected config must not leave the
         // system half-initialised.
         let parsed = MyConfig::from_value(config).map_err(|message| CoreError::GameplayFailed {
@@ -264,13 +292,22 @@ context directly:
 #[test]
 fn confirms_before_the_deadline() {
     let mut system = MySystem::new();
-    system.begin(Some(&config)).expect("valid config");
+    // A snapshot with nothing in it, because this system does not consult the story.
+    let position = NarrativeSnapshot {
+        node: NodeId::from("test"),
+        beat_index: 0,
+        beat_count: 0,
+        visited: Vec::new(),
+        choices: Vec::new(),
+    };
+    system.begin(Some(&config), &position).expect("valid config");
     let mut stats = Stats::default();
 
     let outcome = system.step(&mut GameplayContext {
         dt_ms: 16,
         inputs: &[GameplayInput::Confirm],
         stats: &mut stats,
+        narrative: &position,
     });
 
     assert_eq!(outcome, Some(OutcomeKey::from("confirmed")));

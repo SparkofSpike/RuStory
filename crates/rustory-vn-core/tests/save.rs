@@ -358,7 +358,11 @@ impl GameplaySystem for Recorder {
         SystemId::from("test.recorder")
     }
 
-    fn begin(&mut self, config: Option<&ron::Value>) -> Result<(), CoreError> {
+    fn begin(
+        &mut self,
+        config: Option<&ron::Value>,
+        _narrative: &NarrativeSnapshot,
+    ) -> Result<(), CoreError> {
         self.config = config.cloned();
         self.seen.clear();
         Ok(())
@@ -518,7 +522,11 @@ fn a_system_that_cannot_restore_rejects_state_rather_than_dropping_it() {
         fn id(&self) -> SystemId {
             SystemId::from("test.saves_only")
         }
-        fn begin(&mut self, _config: Option<&ron::Value>) -> Result<(), CoreError> {
+        fn begin(
+            &mut self,
+            _config: Option<&ron::Value>,
+            _narrative: &NarrativeSnapshot,
+        ) -> Result<(), CoreError> {
             Ok(())
         }
         fn step(&mut self, _ctx: &mut GameplayContext<'_>) -> Option<OutcomeKey> {

@@ -57,10 +57,10 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 292 tests, including offscreen GPU renders, colour round-trips, and 73 in `rustory-vn-edit`
+- 298 tests, including offscreen GPU renders, colour round-trips, and 73 in `rustory-vn-edit`
 
-Not yet: rollback history, WASM plugins, an authoring tool. Those have ADRs describing the
-plan, not code pretending to be one.
+Not yet: rollback history, WASM plugins, a structured channel for gameplay to draw
+itself. Those have ADRs describing the plan, not code pretending to be one.
 
 ## Editor
 
@@ -222,7 +222,10 @@ Three boundaries are enforced by types rather than convention:
 1. **The core never parses a gameplay config.** A `GameplaySpec` carries an
    opaque `ron::Value`; each system parses its own.
 2. **A gameplay system cannot see the stage or the story graph.** It receives
-   `GameplayContext { dt_ms, inputs, &mut Stats }` and nothing else.
+   `GameplayContext { dt_ms, inputs, &mut Stats, &NarrativeSnapshot }` and nothing
+   else. The snapshot is a copy, so a system can see which node and beat the story
+   is on — and which nodes it has already visited — without gaining a way to move
+   the story itself.
 3. **The renderer cannot see game concepts.** It consumes a `Frame` — quads and
    text runs — so layout is testable without a GPU.
 
@@ -236,7 +239,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 292 tests; render tests skip without a GPU
+cargo test --workspace      # 298 tests; render tests skip without a GPU
 cargo run -p rustory-vn -- probe
 ```
 
@@ -362,6 +365,14 @@ the same code path.
 See [`docs/gameplay-integration.md`](docs/gameplay-integration.md). Short
 version: new crate, implement `GameplaySystem`, register one line, reference it
 from a script.
+
+A system is not blind to the story it interrupts. `begin` and `step` both receive a
+`NarrativeSnapshot` — the node, the beat position, every node visited and every
+choice made, all owned and read-only. That is enough for a system whose content
+depends on history (a fight that is harder the second time, a quiz that only asks
+about a scene already read) without letting it rewrite the story. See
+[ADR 0012](docs/adr/0012-gameplay-sees-the-story.md) for why it is a copy and not
+`&Narrative`.
 
 ## Contributing
 

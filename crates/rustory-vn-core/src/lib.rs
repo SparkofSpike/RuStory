@@ -66,8 +66,8 @@ mod text;
 pub use error::CoreError;
 pub use event::{NarrativeEvent, TickReport};
 pub use gameplay::{
-    GameplayContext, GameplayInput, GameplayRegistry, GameplaySystem, Stats, decode_state,
-    encode_state,
+    ChoiceMade, GameplayContext, GameplayInput, GameplayRegistry, GameplaySystem,
+    NarrativeSnapshot, Stats, decode_state, encode_state,
 };
 pub use ids::{ActorId, NodeId, OutcomeKey, SystemId};
 pub use narrative::{LineView, Mode, Narrative};
@@ -79,9 +79,10 @@ pub use text::{LocaleTable, Locales, Text, is_valid_language_tag};
 /// The types almost every caller needs.
 pub mod prelude {
     pub use crate::{
-        ActorId, Beat, Choice, CoreError, Exit, GameplayContext, GameplayInput, GameplayRegistry,
-        GameplaySave, GameplaySpec, GameplaySystem, LineView, LocaleTable, Locales, Mode,
-        Narrative, NarrativeEvent, Node, NodeId, OutcomeKey, SAVE_VERSION, SaveState, Slot, Stage,
-        Stats, Story, StoryMeta, SystemId, Text, TickReport, decode_state, encode_state,
+        ActorId, Beat, Choice, ChoiceMade, CoreError, Exit, GameplayContext, GameplayInput,
+        GameplayRegistry, GameplaySave, GameplaySpec, GameplaySystem, LineView, LocaleTable,
+        Locales, Mode, Narrative, NarrativeEvent, NarrativeSnapshot, Node, NodeId, OutcomeKey,
+        SAVE_VERSION, SaveState, Slot, Stage, Stats, Story, StoryMeta, SystemId, Text, TickReport,
+        decode_state, encode_state,
     };
 }

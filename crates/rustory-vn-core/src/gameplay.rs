@@ -17,17 +17,18 @@
 //!
 //! # What a system may touch
 //!
-//! Only [`Stats`] and its own fields. It cannot see the stage, the story graph or
-//! the renderer, because none of those are in [`GameplayContext`]. If a system
-//! needs new shared state, that is a deliberate widening of this contract and
-//! belongs in an ADR — not in a `&mut World` escape hatch.
+//! Its own fields, [`Stats`], and a read-only [`NarrativeSnapshot`] of where the story is.
+//! It cannot see the stage, the story graph or the renderer, and it cannot write the story:
+//! the only way a gameplay affects what happens next is by reporting an [`OutcomeKey`]. If a
+//! system needs new shared state, that is a deliberate widening of this contract and belongs
+//! in an ADR, not in a `&mut World` escape hatch.
 
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::CoreError;
-use crate::ids::{OutcomeKey, SystemId};
+use crate::ids::{NodeId, OutcomeKey, SystemId};
 
 /// Named integer values shared between the narrative and gameplay systems.
 ///
@@ -80,14 +81,80 @@ pub enum GameplayInput {
     Select { index: usize },
 }
 
+/// What a gameplay system may know about the story around it.
+///
+/// Read-only and owned, copied at the handover rather than borrowed from the narrative: a
+/// system can see where it is but cannot reach back in, so adding a gameplay cannot change what
+/// happens outside its own handover. That is the difference between this and the `&mut World`
+/// escape hatch ADR 0004 refused.
+///
+/// This exists because a system whose rules depend on what the player has read — a debate that
+/// escalates with each round, a puzzle that reuses a clue from three scenes ago — could only
+/// hard-code the answer in its config before. Widening the contract is the honest fix; the
+/// alternative was every such system inventing its own half-working counter in [`Stats`].
+///
+/// No `Default`: a snapshot is produced by a narrative, and an empty one would have to invent
+/// a node, which is the kind of placeholder that ends up compared against by accident.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NarrativeSnapshot {
+    /// The node that handed control over.
+    pub node: NodeId,
+    /// Zero-based index of the beat the handover happened at.
+    ///
+    /// Usually the node's last beat, since a handover is an exit — but a node can also stop
+    /// early, and a system drawing a progress bar wants the real number.
+    pub beat_index: usize,
+    /// How many beats that node has.
+    pub beat_count: usize,
+    /// Nodes entered so far, oldest first, repeats included.
+    ///
+    /// Repeats are kept on purpose: "is this the second time we are here" is the question a
+    /// boss fight asks, and a set would answer it wrongly. A caller that only wants "have we
+    /// ever been here" checks [`NarrativeSnapshot::has_visited`].
+    pub visited: Vec<NodeId>,
+    /// Branches the player has taken, oldest first.
+    pub choices: Vec<ChoiceMade>,
+}
+
+impl NarrativeSnapshot {
+    /// How many times `node` has been entered, this visit included.
+    #[must_use]
+    pub fn visits(&self, node: &str) -> usize {
+        self.visited
+            .iter()
+            .filter(|seen| seen.as_str() == node)
+            .count()
+    }
+
+    /// Whether `node` has been entered at least once.
+    #[must_use]
+    pub fn has_visited(&self, node: &str) -> bool {
+        self.visited.iter().any(|seen| seen.as_str() == node)
+    }
+}
+
+/// One branch the player took.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChoiceMade {
+    /// The node that offered it.
+    pub node: NodeId,
+    /// Which option, zero-based, as the script listed it.
+    pub index: usize,
+}
+
 /// What a gameplay system is allowed to see and change.
 pub struct GameplayContext<'a> {
     /// Milliseconds since the previous step. Wall-clock stays in the app layer.
     pub dt_ms: u32,
     /// Inputs collected since the previous step.
     pub inputs: &'a [GameplayInput],
-    /// Shared counters. The only narrative-adjacent state gameplay may touch.
+    /// Shared counters. The only narrative-adjacent state gameplay may change.
     pub stats: &'a mut Stats,
+    /// Where the story is, frozen at the handover.
+    ///
+    /// Read-only: nothing here can be written back, which is what makes "a gameplay cannot
+    /// affect the story except through its outcome" a fact rather than a convention.
+    pub narrative: &'a NarrativeSnapshot,
 }
 
 /// A pluggable gameplay system.
@@ -98,12 +165,21 @@ pub trait GameplaySystem {
     /// The id scripts use to invoke this system.
     fn id(&self) -> SystemId;
 
-    /// Called once when the script hands control over, with that node's config.
+    /// Called once when the script hands control over, with that node's config and the
+    /// story's position.
     ///
-    /// Parsing happens here rather than in the loader so the core stays ignorant
-    /// of the concrete config type. Returning an error aborts the handover and
-    /// surfaces to the caller; it must not leave half-initialized state behind.
-    fn begin(&mut self, config: Option<&ron::Value>) -> Result<(), CoreError>;
+    /// Parsing happens here rather than in the loader so the core stays ignorant of the
+    /// concrete config type. Returning an error aborts the handover and surfaces to the
+    /// caller; it must not leave half-initialized state behind.
+    ///
+    /// The snapshot is passed here as well as to [`GameplaySystem::step`] because a system
+    /// that varies its content by context — a quiz that picks harder questions the second
+    /// time through — has to choose before the first frame, not after it.
+    fn begin(
+        &mut self,
+        config: Option<&ron::Value>,
+        narrative: &NarrativeSnapshot,
+    ) -> Result<(), CoreError>;
 
     /// Advance by `dt_ms`. Return `Some(outcome)` when the system is finished,
     /// `None` to keep control.

@@ -20,6 +20,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0009](0009-audio-as-beats.md) | Sound is a beat; a one-shot is an event, music is state | Accepted, implemented | When and how does the engine make noise? |
 | [0010](0010-multiple-documents.md) | Several documents, one window | Accepted, implemented | How are two chapters open at once? |
 | [0011](0011-localisation.md) | Text has a name, and the engine resolves it | Accepted, implemented | How does a story ship in three languages? |
+| [0012](0012-gameplay-sees-the-story.md) | A gameplay system can see where the story is | Accepted, implemented | Does gameplay need read-only narrative state? |
 
 ## Status meanings
 
@@ -33,7 +34,8 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 
 None of these are decided. Writing one is the first step before changing code.
 
-- **Gameplay reading narrative state**: does it need a read-only snapshot? See
-  the open gap recorded in ADR 0004.
+- **Structured gameplay rendering**: a system currently says everything it has to
+  say with one string. Options, bars and boards need a richer channel. See the
+  open gap in ADR 0004.
 - **Format evolution**: how a script migrates when the story format gains a DSL.
-- **Localisation**: externalised text, and how a project swaps languages at runtime.
+- **WASM sandbox**: ADR 0005 is a proposal with no code behind it.
