@@ -312,6 +312,55 @@ impl GameplayRegistry {
     pub fn view_of(&self, id: &SystemId) -> Option<crate::view::GameplayView> {
         self.systems.get(id).and_then(|system| system.view())
     }
+
+    /// Try every gameplay handover in `story` without playing it.
+    ///
+    /// A config is opaque to the core, so a typo in one is invisible until playback reaches that
+    /// node — three scenes in, in front of a player. This walks the script, asks each system to
+    /// parse its own config the way `begin` would, and reports what fails. Nothing is stepped:
+    /// the question is "would this start?", not "what happens next".
+    ///
+    /// Each system is cancelled afterwards, so a registry that has been checked is in the state
+    /// it was in before. Systems not registered are skipped rather than reported here — a
+    /// missing system is a different fault with a different message, and the caller already
+    /// asks about those separately.
+    ///
+    /// Returns one message per bad node, naming the node and the system, because "a config is
+    /// bad" without a location is a riddle.
+    pub fn check_configs(&mut self, story: &crate::Story) -> Vec<String> {
+        let mut found = Vec::new();
+
+        for (node_id, node) in &story.nodes {
+            let crate::Exit::Gameplay { spec } = &node.exit else {
+                continue;
+            };
+            let Some(system) = self.systems.get_mut(&spec.system) else {
+                continue;
+            };
+
+            // The position a real handover would have: this node, past its last beat.
+            let position = NarrativeSnapshot {
+                node: node_id.clone(),
+                beat_index: node.beats.len(),
+                beat_count: node.beats.len(),
+                visited: vec![node_id.clone()],
+                choices: Vec::new(),
+            };
+
+            let result = system.begin(spec.config.as_ref(), &position);
+            // Whether it started or not, the next handover must find a clean system.
+            system.cancel();
+
+            if let Err(err) = result {
+                found.push(format!(
+                    "node `{node_id}`: system `{}` rejected its config: {err}",
+                    spec.system
+                ));
+            }
+        }
+
+        found
+    }
 }
 
 #[cfg(test)]

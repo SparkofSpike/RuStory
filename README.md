@@ -57,7 +57,7 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 333 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
+- 340 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
 
 Not yet: player rollback history, pointer input for gameplay, a flag to load a wasm module.
 Those have ADRs describing the plan, not code pretending to be one.
@@ -172,7 +172,7 @@ buttons under it. See [ADR 0008](docs/adr/0008-editor-architecture.md).
 
 ```console
 $ cargo run -p rustory-vn -- gen-assets assets       # placeholder art
-$ cargo run -p rustory-vn -- check stories/demo.ron  # parse + validate (--json for a report)
+$ cargo run -p rustory-vn -- check stories/demo.ron  # parse, validate, ask every system to read its config (--json for a report)
 $ cargo run -p rustory-vn -- play stories/demo.ron   # play it
 $ cargo run -p rustory-vn -- shot stories/demo.ron --out frame.png --advance 4
 $ cargo run -p rustory-vn -- shot stories/demo.ron --at honest:2 --out frame.png
@@ -251,7 +251,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 333 tests; render tests skip without a GPU
+cargo test --workspace      # 340 tests; render tests skip without a GPU
 cargo run -p rustory-vn -- probe
 ```
 

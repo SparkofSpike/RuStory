@@ -217,13 +217,17 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
 
     // Systems the story invokes but nothing registered: a load-time failure is much
     // cheaper than discovering it three scenes in.
-    let registry = driver::default_registry();
+    let mut registry = driver::default_registry();
     let mut missing = Vec::new();
     for system in driver::required_systems(&story) {
         if !registry.contains(&rustory_vn_core::SystemId::from(system.as_str())) {
             missing.push(system);
         }
     }
+
+    // Every registered system parses its own config here. A typo in one used to be invisible
+    // until playback reached that node, in front of a player.
+    let bad_configs = registry.check_configs(&story);
 
     // The same walk the editor shows: one definition of "is this story sound", used by
     // the panel, `rustory edit` and this report.
@@ -257,7 +261,10 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
         println!(
             "{}",
             serde_json::json!({
-                "ok": true,
+                // `problems` are warnings — an unreachable draft branch is a normal state
+                // while writing. A rejected config is an error: the story cannot be played
+                // through, so the report says so and the exit code follows.
+                "ok": bad_configs.is_empty(),
                 "path": path.display().to_string(),
                 "nodes": story.nodes.len(),
                 "beats": story.beat_count(),
@@ -267,6 +274,7 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
                 "author": story.meta.author,
                 "missing_systems": missing,
                 "problems": problems,
+                "bad_configs": bad_configs,
                 "languages": languages,
                 "default_language": story.default_language,
                 "text_keys": untranslated_keys,
@@ -280,10 +288,22 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
                     .collect::<Vec<_>>(),
             })
         );
+        if !bad_configs.is_empty() {
+            return Err(format!(
+                "{} gameplay config(s) rejected; the story cannot be played through",
+                bad_configs.len()
+            ));
+        }
         return Ok(());
     }
 
-    println!("ok: {}", path.display());
+    // The first line says which verdict this is. Printing `ok:` and then listing rejected
+    // configs would be a report that contradicts its own first word.
+    if bad_configs.is_empty() {
+        println!("ok: {}", path.display());
+    } else {
+        println!("failed: {}", path.display());
+    }
     println!(
         "{} nodes, {} beats, {} choice points, {} gameplay handovers",
         story.nodes.len(),
@@ -324,8 +344,19 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
     for system in &missing {
         println!("warning: gameplay system `{system}` is not registered");
     }
+    for complaint in &bad_configs {
+        println!("problem: {complaint}");
+    }
     for (system, handles) in &mappings {
         println!("{system}: handles {}", handles.join(", "));
+    }
+    if !bad_configs.is_empty() {
+        // Last, so the complaints are the final thing on screen: a report that ends with a
+        // cheerful summary reads as a pass no matter what came before it.
+        return Err(format!(
+            "{} gameplay config(s) rejected; the story cannot be played through",
+            bad_configs.len()
+        ));
     }
     Ok(())
 }

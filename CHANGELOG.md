@@ -43,6 +43,9 @@ SemVer once there is a published version to be compatible with.
 ### Fixed
 
 - `--at <node>:beat` no longer mistakes an intermediate gameplay node for having left the target.
+- `rustory check` now reports a gameplay config its system rejects, and exits non-zero. It used
+  to pass a story whose config could not be parsed, because configs are opaque to the core.
+- The editor's binary is `rustory-editor`, matching ADR 0016; it was still `rustory-vn-editor`.
 
 ## [0.1.0] — unreleased
 

@@ -241,8 +241,11 @@ GPU is an environment fact, not a regression.
   plays the whole thing to completion, always choosing the first option. `shot --at
   <node>[:<beat>|:exit]` exists for callers that know where they want to be; `--advance`
   remains for "click a few times and see".
-- **A bad gameplay config surfaces only when playback reaches that node**, not at
-  load time.
+- **A gameplay config is checked at load time, but only by the system that owns it.**
+  `rustory check` asks every registered system to parse its config the way `begin` would, so a
+  typo is a load error instead of a scene-three surprise. A system that is *not* registered is
+  skipped — the check reports the missing system separately, and cannot validate a config it has
+  no parser for.
 - **No built-in typeface.** The engine ships no fonts; a project supplies its own
   through `assets/fonts/` or `--font`. See ADR 0007. The demo therefore renders in
   whatever the host considers its default sans-serif, which is correct but means

@@ -95,6 +95,36 @@ jobs:
       - name: Validate the demo story
         run: cargo run -q -p rustory-vn -- check stories/demo.ron
 
+      # A config is opaque to the core, so before this a typo in one stayed invisible until
+      # playback reached that node. The fixture is written inline because a broken story is not
+      # something the repository should carry around and someone might fix.
+      - name: A rejected gameplay config fails the check
+        run: |
+          cat > /tmp/bad-config.ron <<'RON'
+          Story(
+              meta: (title: Some("bad config"), author: None),
+              start: "start",
+              nodes: {
+                  "start": (
+                      beats: [],
+                      exit: Gameplay(spec: (
+                          system: "timer.timed_choice",
+                          config: Some((
+                              prompt: Some("Pick"),
+                              duration_ms: 3000,
+                              options: [],
+                              correct: 9,
+                          )),
+                          outcomes: { "correct": "start", "wrong": "start", "timeout": "start" },
+                      )),
+                  ),
+              },
+          )
+          RON
+          ! cargo run -q -p rustory-vn -- check /tmp/bad-config.ron
+          cargo run -q -p rustory-vn -- check /tmp/bad-config.ron --json > /tmp/bad.json || true
+          python3 -c "import json;r=json.load(open('/tmp/bad.json'));assert not r['ok'] and r['bad_configs'], r"
+
       # The translated story is the only place the locale tables are exercised end to end.
       # Checking completeness alone would pass a file whose keys resolve to nothing.
       - name: Validate the translated story, and that each language is complete
