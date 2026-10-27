@@ -117,7 +117,7 @@ intermediate, and this ADR should be superseded.
 
 ## Verification
 
-- `cargo test --workspace` — 245 tests. `rustory-edit` contributes 65 of them, covering
+- `cargo test --workspace` — 253 tests. `rustory-edit` contributes 73 of them, covering
   every operation, every refusal, batch rollback, undo/redo, and a lossless save/reload
   round-trip including non-ASCII text.
 - `rustory ops --json` prints the operation vocabulary with `changes_structure` flags.
@@ -130,7 +130,13 @@ intermediate, and this ADR should be superseded.
 
 ## Known gaps
 
-- **No recent-files list.** Reopening means going through the dialog again.
+- **The preview cannot show a gameplay system's own screen.** Stepping into a handover runs
+  the system with a synthetic "take the first option" input, because a preview must be
+  reproducible. A timed choice's countdown and a quiz's questions have no rendering in the
+  engine yet, so the preview jumps from the last line to the outcome. This is an engine gap,
+  not an editor one: `rustory play` shows the same nothing.
+- **One document at a time.** No tabs, so comparing two chapters means two windows. Fine while
+  a project is one file; wrong as soon as it is not.
 - **The preview does not re-render on window resize.** The logical resolution is fixed,
   so this only shows up as letterboxing differences.
 - **No colour grading or theme editor.** Layout constants are compiled in; a project that
@@ -149,7 +155,7 @@ intermediate, and this ADR should be superseded.
 
 ## What was added after the first version
 
-Both gaps this ADR originally listed are closed:
+The two gaps this ADR originally listed are closed, and three more followed:
 
 - **File dialogs.** New / Open / Save / Save-as, via `rfd`, isolated in `dialogs.rs` so the
   blocking behaviour is confined and the dependency is replaceable in one file. A new
@@ -158,6 +164,10 @@ Both gaps this ADR originally listed are closed:
 - **Gameplay outcome mappings.** `SetOutcome` and `DeleteOutcome` joined the operation
   layer, which means the GUI gained the ability *because the CLI did*: adding the
   operations first is what kept the two front-ends from diverging.
+- **Gameplay configs.** `SetGameplayConfig` takes RON text, checked only for being parseable
+  — the same reasoning as the core treating a config as opaque. Without it the editor could
+  show where outcomes lead and not what the system does, which left the more important half
+  of a gameplay node editable only by hand.
 
 A close guard was added at the same time. Unsaved work prompts before the window closes
 and before Open or New replaces the document, because losing a scene to a misclick is the

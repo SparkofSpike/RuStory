@@ -57,7 +57,7 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 245 tests, including offscreen GPU renders, colour round-trips, and 65 in `rustory-edit`
+- 253 tests, including offscreen GPU renders, colour round-trips, and 73 in `rustory-edit`
 
 Not yet: rollback history, WASM plugins, an authoring tool. Those have ADRs describing the
 plan, not code pretending to be one.
@@ -107,6 +107,11 @@ and is pruned on startup: an entry that no longer opens is dropped rather than o
 Nodes, beats, exits, choices and gameplay outcome mappings are all editable as forms.
 The outcome table is what makes a gameplay system reusable: the same `timer.timed_choice`
 can mean different things in different scenes because *where each key leads is data*.
+
+A gameplay node is edited in full, not half: a config box above the table carries the RON the
+system receives, pretty-printed, so a duration or a quiz's questions change without leaving
+the window. It is checked for being parseable RON and nothing else — the core treats a config
+as opaque, and a check that knew the shape would mean the editor had learned every system.
 
 The node list has a filter, and every reference — a `goto`, a choice target, a gameplay
 outcome — has a **Go** button beside it, so following a branch never means remembering a
@@ -224,7 +229,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 245 tests; render tests skip without a GPU
+cargo test --workspace      # 253 tests; render tests skip without a GPU
 cargo run -p rustory -- probe
 ```
 
