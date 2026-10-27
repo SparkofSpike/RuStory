@@ -58,9 +58,27 @@ use wasmi::{Engine, Instance, Linker, Module, Store, TrapCode, Val};
 /// The system id scripts use for a module loaded under the default name.
 pub const SYSTEM_ID: &str = "wasm.plugin";
 
-/// Instruction budget for one host call. Generous for real work, small enough that a runaway
-/// loop is stopped in milliseconds rather than freezing the window.
-pub const DEFAULT_FUEL: u64 = 4_096;
+/// Instruction budget for one host call.
+///
+/// Both bounds are measurements against real modules, not estimates.
+///
+/// **The floor.** `examples/wasm-guest` — a Rust guest with no dependencies, whose `begin` only
+/// scans the payload for one number — needs between **4 400 and 4 600** instructions to complete
+/// its first call. The original 4 096 was below that, so any guest written in Rust failed at its
+/// first handover. A module that cannot even start is not a sandbox; it is a broken feature.
+///
+/// **The ceiling.** wasmi 2.0 executes wasm frames on the host's Rust stack, so fuel is not the
+/// only thing that stops a runaway guest — the stack wins first. Measured: 16 000 survives, 32 000
+/// overflows a 2 MB thread. The constant therefore sits just under the limit it can actually
+/// enforce.
+///
+/// The consequence is honest, and narrower than it first looks: 16 000 instructions per frame is
+/// about four times what a hand-written guest spends on its first call and orders of magnitude
+/// more than a state machine needs per step. It is *not* enough for a physics simulation, and a
+/// guest that needs more needs a worker thread with a larger stack — an ADR of its own, not a
+/// bigger constant. Raising this number without moving the guest off the host stack would buy
+/// nothing but a stack overflow, which is why the two facts are recorded together.
+pub const DEFAULT_FUEL: u64 = 16_000;
 
 /// Largest config payload the host will hand a guest. A story config is kilobytes.
 pub const MAX_CONFIG_BYTES: usize = 1 << 20;
@@ -94,6 +112,11 @@ struct HostState;
 
 /// A gameplay system backed by a WebAssembly module.
 pub struct WasmGameplay {
+    /// The name scripts use to invoke this module.
+    ///
+    /// Set by whoever loaded it, because a project has more than one module and a fixed id
+    /// would make them overwrite each other in the registry.
+    id: SystemId,
     engine: Engine,
     module: Module,
     // `view(&self)` has to execute guest code, and a wasm call needs a mutable store. The
@@ -123,6 +146,16 @@ impl WasmGameplay {
     /// Failing here rather than at the first handover matters: a broken module should be a load
     /// error a creator can act on, not a mid-scene failure.
     pub fn new(wasm: &[u8]) -> Result<Self, WasmError> {
+        Self::with_id(SYSTEM_ID, wasm)
+    }
+
+    /// Compile a module under the name a script will use.
+    ///
+    /// The name is the caller's because a project has several modules and the registry keeps one
+    /// system per id: a fixed `wasm.plugin` would make the second load overwrite the first, and
+    /// the story would silently run the wrong rules.
+    pub fn with_id(id: impl Into<SystemId>, wasm: &[u8]) -> Result<Self, WasmError> {
+        let id = id.into();
         let mut config = wasmi::Config::default();
         config.consume_fuel(true);
         let engine = Engine::new(&config);
@@ -155,6 +188,7 @@ impl WasmGameplay {
         }
 
         Ok(Self {
+            id,
             engine,
             module,
             store: RefCell::new(store),
@@ -165,12 +199,15 @@ impl WasmGameplay {
         })
     }
 
-    /// Load a module from a file.
-    pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, WasmError> {
+    /// Load a module from a file, under the name a script will use.
+    pub fn open(
+        id: impl Into<SystemId>,
+        path: impl AsRef<std::path::Path>,
+    ) -> Result<Self, WasmError> {
         let path = path.as_ref();
         let bytes = std::fs::read(path)
             .map_err(|err| WasmError::Load(format!("cannot read {}: {err}", path.display())))?;
-        Self::new(&bytes)
+        Self::with_id(id, &bytes)
     }
 
     /// The engine, exposed so a host can share one across several modules.
@@ -279,11 +316,25 @@ impl WasmGameplay {
         })
     }
 
-    fn into_core(error: WasmError) -> CoreError {
+    /// Attach this module's name to a failure, so a story with three plugins can tell which
+    /// one complained.
+    fn as_core(&self, error: WasmError) -> CoreError {
         CoreError::GameplayFailed {
-            system: SYSTEM_ID.to_owned(),
+            system: self.id.to_string(),
             message: error.to_string(),
         }
+    }
+
+    /// `view` without swallowing the reason it failed.
+    ///
+    /// `Ok(None)` means the guest reported nothing to draw, which is legal; `Err` means it tried
+    /// and the result was unusable.
+    fn try_view(&self) -> Result<Option<GameplayView>, WasmError> {
+        if self.invoke("view", &[])? != 1 {
+            return Ok(None);
+        }
+        let bytes = self.result()?;
+        self.parse(&bytes, "view").map(Some)
     }
 }
 
@@ -296,7 +347,7 @@ struct BeginPayload<'a> {
 
 impl GameplaySystem for WasmGameplay {
     fn id(&self) -> SystemId {
-        SystemId::from(SYSTEM_ID)
+        self.id.clone()
     }
 
     fn begin(
@@ -305,20 +356,20 @@ impl GameplaySystem for WasmGameplay {
         narrative: &NarrativeSnapshot,
     ) -> Result<(), CoreError> {
         let payload = ron::ser::to_string(&BeginPayload { config, narrative }).map_err(|err| {
-            Self::into_core(WasmError::BadPayload {
+            self.as_core(WasmError::BadPayload {
                 what: "begin payload",
                 message: err.to_string(),
             })
         })?;
-        let (ptr, len) = self.upload(payload.as_bytes()).map_err(Self::into_core)?;
+        let (ptr, len) = self
+            .upload(payload.as_bytes())
+            .map_err(|err| self.as_core(err))?;
         let status = self
             .invoke("begin", &[Val::I32(ptr), Val::I32(len)])
-            .map_err(Self::into_core)?;
+            .map_err(|err| self.as_core(err))?;
         self.release(ptr, len);
         if status != 0 {
-            return Err(Self::into_core(WasmError::Guest(format!(
-                "begin returned {status}"
-            ))));
+            return Err(self.as_core(WasmError::Guest(format!("begin returned {status}"))));
         }
         self.started = true;
         self.config = config.cloned();
@@ -375,30 +426,40 @@ impl GameplaySystem for WasmGameplay {
         if !self.started || !self.has("view") {
             return None;
         }
-        if self.invoke("view", &[]).ok()? != 1 {
-            return None;
+        match self.try_view() {
+            Ok(view) => view,
+            Err(err) => {
+                // The trait returns an `Option`, so a bad view used to disappear: a guest whose
+                // RON was malformed drew nothing and the screen stayed on the previous frame,
+                // with no way to tell that from a guest that deliberately draws nothing. This
+                // happened once during development and cost a debugging session, so it says so
+                // now instead of being silent.
+                eprintln!(
+                    "rustory: plugin `{}` returned an unusable view: {err}",
+                    self.id
+                );
+                None
+            }
         }
-        let bytes = self.result().ok()?;
-        self.parse(&bytes, "view").ok()
     }
 
     fn save(&self) -> Result<Option<ron::Value>, CoreError> {
         if !self.started || !self.has("save") {
             return Ok(None);
         }
-        let status = self.invoke("save", &[]).map_err(Self::into_core)?;
+        let status = self.invoke("save", &[]).map_err(|err| self.as_core(err))?;
         if status != 1 {
             return Ok(None);
         }
-        let bytes = self.result().map_err(Self::into_core)?;
+        let bytes = self.result().map_err(|err| self.as_core(err))?;
         let text = String::from_utf8(bytes).map_err(|err| {
-            Self::into_core(WasmError::BadPayload {
+            self.as_core(WasmError::BadPayload {
                 what: "save state",
                 message: err.to_string(),
             })
         })?;
         let value = ron::from_str(&text).map_err(|err| {
-            Self::into_core(WasmError::BadPayload {
+            self.as_core(WasmError::BadPayload {
                 what: "save state",
                 message: err.to_string(),
             })
@@ -411,25 +472,23 @@ impl GameplaySystem for WasmGameplay {
             return Ok(());
         };
         if !self.has("restore") {
-            return Err(Self::into_core(WasmError::MissingExport(
-                "restore".to_owned(),
-            )));
+            return Err(self.as_core(WasmError::MissingExport("restore".to_owned())));
         }
         let payload = ron::ser::to_string(state).map_err(|err| {
-            Self::into_core(WasmError::BadPayload {
+            self.as_core(WasmError::BadPayload {
                 what: "save state",
                 message: err.to_string(),
             })
         })?;
-        let (ptr, len) = self.upload(payload.as_bytes()).map_err(Self::into_core)?;
+        let (ptr, len) = self
+            .upload(payload.as_bytes())
+            .map_err(|err| self.as_core(err))?;
         let status = self
             .invoke("restore", &[Val::I32(ptr), Val::I32(len)])
-            .map_err(Self::into_core)?;
+            .map_err(|err| self.as_core(err))?;
         self.release(ptr, len);
         if status != 0 {
-            return Err(Self::into_core(WasmError::Guest(format!(
-                "restore returned {status}"
-            ))));
+            return Err(self.as_core(WasmError::Guest(format!("restore returned {status}"))));
         }
         Ok(())
     }

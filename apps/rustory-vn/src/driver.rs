@@ -198,9 +198,27 @@ pub fn describe_mode(narrative: &Narrative) -> String {
 ///
 /// This is how "is the story playable?" gets a real answer without a window. A
 /// story that loops back on itself is reported rather than spun on.
+///
+/// Kept for callers with no plugins to load — the tests, and any embedding that only uses the
+/// engine's own systems. The CLI goes through [`transcript_with`], because it may have modules
+/// to load first.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn transcript(story: Story, max_clicks: usize) -> Result<Vec<String>, String> {
+    let registry = default_registry();
+    transcript_with(story, max_clicks, registry)
+}
+
+/// The same walk with a registry the caller built.
+///
+/// Separate from [`transcript`] so a story that needs a loaded module does not have to take a
+/// different code path — the CLI loads plugins, then calls this.
+pub fn transcript_with(
+    story: Story,
+    max_clicks: usize,
+    registry: GameplayRegistry,
+) -> Result<Vec<String>, String> {
     let mut narrative = Narrative::new(story).map_err(|err| err.to_string())?;
-    let mut registry = default_registry();
+    let mut registry = registry;
     let mut lines: Vec<String> = Vec::new();
     let mut visits: BTreeMap<NodeId, usize> = BTreeMap::new();
 

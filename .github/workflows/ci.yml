@@ -253,5 +253,50 @@ jobs:
       - name: Play the story headlessly
         run: cargo run -q -p rustory-vn -- transcript stories/demo.ron
 
+      # The wasm tier, end to end against a real module rather than a fixture: build the
+      # example guest, install it where the convention says, and play the story that names it.
+      # This is also the regression test for the fuel budget — 4 096 was too small for a Rust
+      # guest's first call, and only a real guest says so.
+      - name: A WebAssembly module drives a story
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo build --release --target wasm32-unknown-unknown \
+            --manifest-path examples/wasm-guest/Cargo.toml
+          mkdir -p plugins
+          cp examples/wasm-guest/target/wasm32-unknown-unknown/release/rustory_wasm_guest_example.wasm \
+            plugins/doors.wasm
+          cargo run -q -p rustory-vn -- check stories/doors.ron | tee /tmp/doors.txt
+          grep -q "plugin doors: plugins/doors.wasm (directory)" /tmp/doors.txt
+          cargo run -q -p rustory-vn -- transcript stories/doors.ron | tee /tmp/doors-lines.txt
+          # The guest reports `won` for option 2, so the story takes the branch it maps.
+          grep -q "light behind it" /tmp/doors-lines.txt
+          # And the view reaches the frame, rather than silently drawing nothing.
+          cargo run -q -p rustory-vn -- shot stories/doors.ron --at hallway:exit --out /tmp/doors.png \
+            | tee /tmp/doors-shot.txt
+          grep -qv "0 primitives" /tmp/doors-shot.txt
+
+      - name: An unloadable module fails the check
+        run: |
+          # Declared, missing, and therefore fatal: loading nothing would leave the story
+          # unplayable with no explanation.
+          cat > /tmp/needs-plugin.ron <<'RON'
+          Story(
+              meta: (title: Some("needs a module"), author: None),
+              start: "start",
+              plugins: { "nowhere": "absent.wasm" },
+              nodes: {
+                  "start": (
+                      beats: [],
+                      exit: Gameplay(spec: (
+                          system: "nowhere",
+                          config: None,
+                          outcomes: { "done": "start" },
+                      )),
+                  ),
+              },
+          )
+          RON
+          ! cargo run -q -p rustory-vn -- check /tmp/needs-plugin.ron
+
       - name: The editor renders a frame without a window
         run: cargo run -q -p rustory-vn-editor -- --check stories/demo.ron --out /tmp/preview.png

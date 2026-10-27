@@ -159,6 +159,19 @@ pub struct Story {
     /// Which language to play when the caller does not say. Must be a key of `locales`.
     #[serde(default)]
     pub default_language: Option<String>,
+    /// Gameplay modules this story needs, by the name scripts invoke them under, and the path
+    /// each one lives at.
+    ///
+    /// Empty for a story that only uses systems compiled into the engine, which is the common
+    /// case and costs nothing. A story that names a module here is portable: the mapping travels
+    /// with the file, so a cloned repository plays without a command line full of `--plugin`
+    /// flags.
+    ///
+    /// A path is a hint, not a contract. Whoever loads the story may supply a different module
+    /// for the same name — a newer build, a local override — because the name is what the script
+    /// asked for and the path is only how it found one last time.
+    #[serde(default)]
+    pub plugins: BTreeMap<SystemId, String>,
 }
 
 impl Story {
@@ -176,6 +189,7 @@ impl Story {
             nodes,
             locales: Locales::new(),
             default_language: None,
+            plugins: BTreeMap::new(),
         }
     }
 

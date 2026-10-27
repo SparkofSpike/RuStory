@@ -2832,6 +2832,7 @@ dependencies = [
  "rustory-vn-edit",
  "rustory-vn-gameplay-quiz",
  "rustory-vn-gameplay-timer",
+ "rustory-vn-gameplay-wasm",
  "rustory-vn-render",
  "rustory-vn-script",
  "serde",

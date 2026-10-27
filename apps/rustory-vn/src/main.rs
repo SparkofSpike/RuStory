@@ -10,6 +10,7 @@ mod audio;
 mod driver;
 mod edit_cli;
 mod play;
+mod plugins;
 mod scene;
 
 use std::path::{Path, PathBuf};
@@ -81,7 +82,8 @@ fn run(args: &[String]) -> Result<(), String> {
         "check" => {
             let path = args.get(1).ok_or("check needs a story path")?;
             let as_json = args.iter().any(|arg| arg == "--json");
-            check(Path::new(path), as_json)
+            let (flags, _) = take_plugin_flags(&args[1..]);
+            check(Path::new(path), as_json, &flags)
         }
         "transcript" => transcript(&args[1..]),
         "gen-assets" => {
@@ -197,7 +199,55 @@ fn load_for_playback(
         })
 }
 
-fn check(path: &Path, as_json: bool) -> Result<(), String> {
+/// Build the registry for `story`, loading the modules it names.
+///
+/// `flags` are `--plugin name=path` requests. Every caller that is about to run a story goes
+/// through this, so "which systems exist" has one answer rather than one per command.
+fn registry_for(
+    story: &rustory_vn_core::Story,
+    story_path: &Path,
+    flags: &[String],
+) -> Result<(rustory_vn_core::GameplayRegistry, plugins::LoadReport), String> {
+    let mut wanted = std::collections::BTreeMap::new();
+    for flag in flags {
+        let request = plugins::PluginRequest::parse(flag)?;
+        wanted.insert(request.name, request.path);
+    }
+
+    let mut registry = driver::default_registry();
+    let story_dir = story_path.parent().unwrap_or(Path::new("."));
+    let report = plugins::load_into(&mut registry, story, story_dir, &wanted);
+    Ok((registry, report))
+}
+
+/// Collect `--plugin` arguments out of an argument list, leaving the rest.
+///
+/// Each command parses its own options and none of them knew about plugins; taking them out
+/// first is cheaper than teaching five parsers the same flag, and it means `--plugin` works in
+/// every position rather than only where someone remembered to add a branch.
+fn take_plugin_flags(args: &[String]) -> (Vec<String>, Vec<String>) {
+    let mut flags = Vec::new();
+    let mut rest = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        if args[index] == "--plugin" {
+            if let Some(value) = args.get(index + 1) {
+                flags.push(value.clone());
+                index += 2;
+                continue;
+            }
+            // Left in place so the caller's own parser reports the missing value in its style.
+            rest.push(args[index].clone());
+            index += 1;
+            continue;
+        }
+        rest.push(args[index].clone());
+        index += 1;
+    }
+    (flags, rest)
+}
+
+fn check(path: &Path, as_json: bool, plugin_flags: &[String]) -> Result<(), String> {
     let story = match load(path) {
         Ok(story) => story,
         Err(err) => {
@@ -228,8 +278,10 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
         .count();
 
     // Systems the story invokes but nothing registered: a load-time failure is much
-    // cheaper than discovering it three scenes in.
-    let mut registry = driver::default_registry();
+    // cheaper than discovering it three scenes in. Plugins are loaded first, so a story whose
+    // module is present on disk is checked against the real system rather than reported as
+    // missing.
+    let (mut registry, plugin_report) = registry_for(&story, path, plugin_flags)?;
     let mut missing = Vec::new();
     for system in driver::required_systems(&story) {
         if !registry.contains(&rustory_vn_core::SystemId::from(system.as_str())) {
@@ -276,7 +328,7 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
                 // `problems` are warnings — an unreachable draft branch is a normal state
                 // while writing. A rejected config is an error: the story cannot be played
                 // through, so the report says so and the exit code follows.
-                "ok": bad_configs.is_empty(),
+                "ok": bad_configs.is_empty() && plugin_report.failed.is_empty(),
                 "path": path.display().to_string(),
                 "nodes": story.nodes.len(),
                 "beats": story.beat_count(),
@@ -287,6 +339,17 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
                 "missing_systems": missing,
                 "problems": problems,
                 "bad_configs": bad_configs,
+                "plugins": {
+                    "loaded": plugin_report.loaded.iter().map(|plugin| serde_json::json!({
+                        "name": plugin.name.to_string(),
+                        "path": plugin.path.display().to_string(),
+                        "source": plugin.source.as_str(),
+                    })).collect::<Vec<_>>(),
+                    "failed": plugin_report.failed.iter().map(|(name, reason)| serde_json::json!({
+                        "name": name.to_string(),
+                        "reason": reason,
+                    })).collect::<Vec<_>>(),
+                },
                 "languages": languages,
                 "default_language": story.default_language,
                 "text_keys": untranslated_keys,
@@ -310,11 +373,13 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
     }
 
     // The first line says which verdict this is. Printing `ok:` and then listing rejected
-    // configs would be a report that contradicts its own first word.
-    if bad_configs.is_empty() {
-        println!("ok: {}", path.display());
-    } else {
+    // configs or a module that would not load would be a report that contradicts its own first
+    // word.
+    let failed = !bad_configs.is_empty() || !plugin_report.failed.is_empty();
+    if failed {
         println!("failed: {}", path.display());
+    } else {
+        println!("ok: {}", path.display());
     }
     println!(
         "{} nodes, {} beats, {} choice points, {} gameplay handovers",
@@ -356,6 +421,9 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
     for system in &missing {
         println!("warning: gameplay system `{system}` is not registered");
     }
+    for line in plugin_report.summary() {
+        println!("{line}");
+    }
     for complaint in &bad_configs {
         println!("problem: {complaint}");
     }
@@ -370,10 +438,15 @@ fn check(path: &Path, as_json: bool) -> Result<(), String> {
             bad_configs.len()
         ));
     }
+    if let Some((name, reason)) = plugin_report.failed.first() {
+        return Err(format!("plugin `{name}` could not be loaded: {reason}"));
+    }
     Ok(())
 }
 
 fn transcript(args: &[String]) -> Result<(), String> {
+    let (plugin_flags, args) = take_plugin_flags(args);
+    let args = &args[..];
     let mut story_path: Option<PathBuf> = None;
     let mut language: Option<String> = None;
     let mut missing = rustory_vn_core::MissingText::Refuse;
@@ -405,7 +478,11 @@ fn transcript(args: &[String]) -> Result<(), String> {
 
     let story_path = story_path.ok_or("transcript needs a story path")?;
     let story = load_for_playback(&story_path, language.as_deref(), missing)?;
-    let lines = driver::transcript(story, 500)?;
+    let (registry, report) = registry_for(&story, &story_path, &plugin_flags)?;
+    if let Some((name, reason)) = report.failed.first() {
+        return Err(format!("plugin `{name}` could not be loaded: {reason}"));
+    }
+    let lines = driver::transcript_with(story, 500, registry)?;
     for line in &lines {
         println!("{line}");
     }
@@ -599,10 +676,15 @@ fn parse_shot_args(args: &[String]) -> Result<ShotOptions, String> {
 }
 
 fn shot(args: &[String]) -> Result<(), String> {
-    let options = parse_shot_args(args)?;
+    let (plugin_flags, args) = take_plugin_flags(args);
+    let options = parse_shot_args(&args)?;
     let story = load_for_playback(&options.story, options.language.as_deref(), options.missing)?;
+    let (mut registry, report) = registry_for(&story, &options.story, &plugin_flags)?;
     let mut narrative = Narrative::new(story).map_err(|err| err.to_string())?;
-    let mut registry = driver::default_registry();
+
+    if let Some((name, reason)) = report.failed.first() {
+        return Err(format!("plugin `{name}` could not be loaded: {reason}"));
+    }
 
     if let Some(target) = &options.at {
         if options.advance > 0 {
@@ -663,6 +745,8 @@ fn shot(args: &[String]) -> Result<(), String> {
 /// possible to reach an interesting state (mid-line, mid-choice, mid-gameplay)
 /// without a window.
 fn save_cmd(args: &[String]) -> Result<(), String> {
+    let (plugin_flags, args) = take_plugin_flags(args);
+    let args = &args[..];
     let mut story_path = None;
     let mut out = PathBuf::from("save.ron");
     let mut advance = 0usize;
@@ -694,8 +778,12 @@ fn save_cmd(args: &[String]) -> Result<(), String> {
 
     let story_path = story_path.ok_or("save needs a story path")?;
     let story = load(&story_path)?;
+    let (mut registry, report) = registry_for(&story, &story_path, &plugin_flags)?;
     let mut narrative = Narrative::new(story).map_err(|err| err.to_string())?;
-    let mut registry = driver::default_registry();
+
+    if let Some((name, reason)) = report.failed.first() {
+        return Err(format!("plugin `{name}` could not be loaded: {reason}"));
+    }
 
     for _ in 0..advance {
         if matches!(narrative.mode(), rustory_vn_core::Mode::Finished { .. }) {
@@ -729,6 +817,8 @@ fn save_cmd(args: &[String]) -> Result<(), String> {
 
 /// Load a save and report where it resumes; with `--finish`, keep playing.
 fn resume_cmd(args: &[String]) -> Result<(), String> {
+    let (plugin_flags, args) = take_plugin_flags(args);
+    let args = &args[..];
     let mut positional: Vec<PathBuf> = Vec::new();
     let mut finish = false;
 
@@ -749,7 +839,12 @@ fn resume_cmd(args: &[String]) -> Result<(), String> {
         .map_err(|err| format!("cannot read {}: {err}", save_path.display()))?;
     let save = rustory_vn_core::SaveState::from_ron(&text).map_err(|err| err.to_string())?;
 
-    let mut registry = driver::default_registry();
+    // A save may have been taken while a plugin had control, so the module has to be loaded
+    // before `from_save` asks it to restore its own state.
+    let (mut registry, report) = registry_for(&story, story_path, &plugin_flags)?;
+    if let Some((name, reason)) = report.failed.first() {
+        return Err(format!("plugin `{name}` could not be loaded: {reason}"));
+    }
     let mut narrative =
         Narrative::from_save(story, &save, &mut registry).map_err(|err| err.to_string())?;
 

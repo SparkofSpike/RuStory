@@ -1,0 +1,40 @@
+// A story whose gameplay is a WebAssembly module, to prove the loader end to end.
+//
+// The module lives at `plugins/doors.wasm` — the convention — so this file has no path in it and
+// plays from a clone with no flags. The `plugins` map below is optional and commented out; see
+// the note under it.
+
+Story(
+    meta: (
+        title: Some("Two doors"),
+        author: Some("RuStory"),
+    ),
+    start: "hallway",
+    nodes: {
+        "hallway": (
+            beats: [
+                Say(speaker: None, text: "There are two doors. One of them opens."),
+            ],
+            exit: Gameplay(spec: (
+                system: "doors",
+                config: Some((correct: 1, prompt: Some("Choose"))),
+                outcomes: {
+                    "won": "opened",
+                    "lost": "nothing",
+                },
+            )),
+        ),
+        "opened": (
+            beats: [
+                Say(speaker: None, text: "It swings inward, and there is light behind it."),
+            ],
+            exit: End(ending: Some("Found the way")),
+        ),
+        "nothing": (
+            beats: [
+                Say(speaker: None, text: "The handle turns, and nothing happens."),
+            ],
+            exit: End(ending: Some("Wrong door")),
+        ),
+    },
+)

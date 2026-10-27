@@ -76,16 +76,22 @@ two textual formats and two parsers for the same job. `GameplayView` gained `Ser
 `Deserialize` for this — it is plain data, and the editor benefits from being able to round-trip
 one.
 
-### Fuel is 4 096 instructions per call, and that is a measurement
+### Fuel is 16 000 instructions per call, and both bounds are measurements
 
-wasmi 2.0 executes wasm frames on the host's stack. A guest that loops 100 000 times overflows a
-2 MB test thread **before** its fuel runs out; 1 000 is safe. The limit is therefore set at 4 096
-and the fact is written down here rather than tuned by feel.
+**Corrected after a real guest failed.** This ADR first set the budget at 4 096, from an experiment
+with hand-written WAT modules that did nothing. A Rust guest with no dependencies needs over
+4 400 instructions just to log its first call, so every real module failed at its first handover.
+The history and the bisection are in [ADR 0017](0017-wasm-plugins.md).
 
-The consequence is honest: a wasm system gets roughly four thousand instructions per frame. That
-is enough for turn-based or state-machine gameplay and not enough for a physics simulation. A
-system that needs more needs either a worker thread with a larger stack or a runtime with its own
-stack management — an ADR of its own, not a bigger constant.
+wasmi 2.0 executes wasm frames on the host's stack, so fuel is not the only thing that stops a
+runaway guest — the stack wins first. Measured: 16 000 survives a 2 MB thread, 32 000 overflows
+it. The constant sits just under the limit it can actually enforce.
+
+The consequence is honest: a wasm system gets about sixteen thousand instructions per frame,
+roughly four times what a hand-written guest spends on its first call and far more than a state
+machine needs per step. That is enough for turn-based or state-machine gameplay and not enough
+for a physics simulation. A system that needs more needs either a worker thread with a larger
+stack or a runtime with its own stack management — an ADR of its own, not a bigger constant.
 
 The limit is also a security property: it bounds the work one frame can demand, so a malicious
 module cannot freeze the window even if it never touches anything it should not.

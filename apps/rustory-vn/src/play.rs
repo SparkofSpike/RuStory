@@ -5,6 +5,7 @@
 //! draw list to the renderer. Game state stays in `rustory-vn-core`, which has never
 //! heard of a mouse.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -18,6 +19,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 use crate::driver;
+use crate::plugins;
 use crate::scene::{HEIGHT, TextureBank, WIDTH};
 
 /// Characters per second for the typewriter. Fast enough to stay out of the way,
@@ -35,6 +37,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut language: Option<String> = None;
 
     let mut index = 0;
+    let mut plugin_flags: Vec<plugins::PluginRequest> = Vec::new();
     while index < args.len() {
         match args[index].as_str() {
             "--assets" => {
@@ -48,6 +51,12 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--font" => {
                 index += 1;
                 font = Some(args.get(index).ok_or("--font needs a family name")?.clone());
+            }
+            "--plugin" => {
+                index += 1;
+                plugin_flags.push(plugins::PluginRequest::parse(
+                    args.get(index).ok_or("--plugin needs `name=path`")?,
+                )?);
             }
             "--mute" => mute = true,
             "--language" => {
@@ -84,13 +93,30 @@ pub fn run(args: &[String]) -> Result<(), String> {
         })?,
         None => story,
     };
+
+    // Modules before the narrative: a system that cannot load is a startup failure, not a
+    // surprise three scenes in.
+    let mut registry = driver::default_registry();
+    let wanted: BTreeMap<rustory_vn_core::SystemId, PathBuf> = plugin_flags
+        .into_iter()
+        .map(|request| (request.name, request.path))
+        .collect();
+    let story_dir = story_path.parent().unwrap_or(std::path::Path::new("."));
+    let report = plugins::load_into(&mut registry, &story, story_dir, &wanted);
+    for line in report.summary() {
+        println!("{line}");
+    }
+    if let Some((name, reason)) = report.failed.first() {
+        return Err(format!("plugin `{name}` could not be loaded: {reason}"));
+    }
+
     let narrative = Narrative::new(story).map_err(|err| err.to_string())?;
 
     let event_loop = EventLoop::new().map_err(|err| err.to_string())?;
     // Continuous redraw: the typewriter needs frames even when nothing moves.
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut player = Player::new(narrative, assets, save_path, font, mute);
+    let mut player = Player::new(narrative, registry, assets, save_path, font, mute);
     event_loop
         .run_app(&mut player)
         .map_err(|err| err.to_string())
@@ -134,6 +160,7 @@ struct Player {
 impl Player {
     fn new(
         narrative: Narrative,
+        registry: GameplayRegistry,
         assets: PathBuf,
         save_path: PathBuf,
         font: Option<String>,
@@ -158,7 +185,7 @@ impl Player {
         }
         Self {
             narrative,
-            registry: driver::default_registry(),
+            registry,
             assets,
             font,
             save_path,

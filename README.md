@@ -57,10 +57,10 @@ and the contract gets fixed — not the core.
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
 - **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 346 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
+- 359 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
 
-Not yet: player rollback history, pointer input for gameplay, a flag to load a wasm module.
-Those have ADRs describing the plan, not code pretending to be one.
+Not yet: player rollback history, pointer input for gameplay. Those have ADRs describing the
+plan, not code pretending to be one.
 
 ## Editor
 
@@ -251,7 +251,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 346 tests; render tests skip without a GPU
+cargo test --workspace      # 359 tests; render tests skip without a GPU
 cargo run -p rustory-vn -- probe
 ```
 
@@ -404,10 +404,25 @@ one without a window — see the last two screenshots above and
 
 A system does not have to be Rust compiled into the binary. `rustory-vn-gameplay-wasm` runs a
 WebAssembly module through the same trait — with no imports at all, so a guest cannot open a
-file or read the clock, and a per-call instruction budget, so it cannot hang the window. The
-budget is roughly four thousand instructions per frame, measured against wasmi's host-stack
-behaviour; a system that needs more needs a worker thread or a different runtime. See
-[ADR 0015](docs/adr/0015-wasm-tier.md).
+file or read the clock, and a per-call instruction budget, so it cannot hang the window.
+
+A story names its modules and the environment supplies them, in this order: `--plugin
+name=path`, then the story's own `plugins` map, then `plugins/<name>.wasm` beside the story or
+one level up. The first two exist for the cases that need them; the third is why a cloned
+repository plays with no flags at all:
+
+```console
+$ cargo run -p rustory-vn -- check stories/doors.ron
+ok: stories/doors.ron
+plugin doors: plugins\doors.wasm (directory)
+
+$ cargo run -p rustory-vn -- play stories/doors.ron
+$ cargo run -p rustory-vn -- play stories/doors.ron --plugin doors=build/debug/doors.wasm
+```
+
+`examples/wasm-guest` is a working module — 1.6 KB of `no_std` Rust implementing the documented
+ABI by hand, which is also how the instruction budget was measured rather than guessed. See
+[ADR 0017](docs/adr/0017-wasm-plugins.md) and [ADR 0015](docs/adr/0015-wasm-tier.md).
 
 ## Contributing
 

@@ -26,3 +26,10 @@
 # Crash-recovery copies written beside a story while it has unsaved changes.
 # Working files, like target/: recoverable, not deliverables.
 *.draft.ron
+
+# The example wasm module is built from examples/wasm-guest, which is the source of truth.
+# `cargo build --release --target wasm32-unknown-unknown --manifest-path examples/wasm-guest/Cargo.toml`
+# then copy it to plugins/doors.wasm. Committing the binary would mean two copies of it that
+# can disagree, and the committed one would be the stale one.
+/plugins/*.wasm
+/examples/wasm-guest/target

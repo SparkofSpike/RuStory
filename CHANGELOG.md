@@ -31,6 +31,12 @@ SemVer once there is a published version to be compatible with.
 - **A WebAssembly tier.** `rustory-vn-gameplay-wasm` runs a module through the same
   `GameplaySystem` trait, with no imports at all and a per-call instruction budget. The guest
   returns an outcome key, an optional view and an optional save state, all as RON.
+- **Plugins resolved by name.** A story names a module (`system: "doors"`); the module comes from
+  `--plugin name=path`, the story's own `plugins` map, or `plugins/<name>.wasm` beside the story
+  or one level up — in that order. `rustory check` reports which source supplied each one.
+  `examples/wasm-guest` is a working 1.6 KB module written against the ABI by hand.
+- **`rustory-editor`'s history panel** on `Ctrl+H`: every state the open tab can jump to, labelled
+  with the operation that produced it.
 
 ### Changed
 

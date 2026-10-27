@@ -25,6 +25,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0014](0014-two-ways-back.md) | Two ways back: save slots for players, a timeline for authors | Accepted, implemented (timeline) | How does someone return to an earlier state? |
 | [0015](0015-wasm-tier.md) | A third tier: gameplay that arrives as WebAssembly | Accepted, implemented | How does untrusted gameplay run without rebuilding the engine? |
 | [0016](0016-three-names.md) | Three names, each with one job | Accepted, implemented | What is this thing called? |
+| [0017](0017-wasm-plugins.md) | A story names its modules; the environment supplies them | Accepted, implemented | How does a script reach a WebAssembly module? |
 
 ## Status meanings
 
@@ -42,6 +43,6 @@ None of these are decided. Writing one is the first step before changing code.
   Input is still `Confirm` and `Select { index }`. Needs an ADR before code.
 - **Persisting the editing timeline**: history is in memory only. A named checkpoint file is
   the obvious next step; where it lives and how it interacts with git is undecided.
-- **Registering a wasm module from a script or a flag**: the runtime exists (ADR 0015) and the
-  loader is a library call; the user-facing way to name a module is not decided.
+- **A wasm guest SDK**: the ABI is documented and an example exists, but there is no crate that
+  wraps it. Worth writing once two guests exist.
 - **Format evolution**: how a script migrates when the story format gains a DSL.
