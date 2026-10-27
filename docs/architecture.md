@@ -160,6 +160,7 @@ crates/rustory-vn-core/src/
   event.rs        NarrativeEvent, TickReport
   gameplay.rs     GameplaySystem trait, GameplayContext, Stats, Registry
   view.rs         GameplayView / Element / Tone: what a system draws
+  slots.rs        SaveSlot / SlotLayout / SlotSummary: the model, no I/O
   error.rs        CoreError
 
 crates/rustory-vn-script/src/lib.rs
@@ -175,10 +176,13 @@ crates/rustory-vn-gameplay-timer/src/lib.rs
   Timed choice: TimerConfig, TimedChoice
 
 apps/rustory-vn/src/
-  main.rs         CLI dispatch: probe / check / transcript / gen-assets / shot / play
+  main.rs         CLI dispatch: check / transcript / shot / play / save / saves
   driver.rs       Click semantics, registry, texture loading, transcript
   scene.rs        The only translation layer from Narrative to Frame
-  play.rs         winit event loop, surface, input mapping
+  play.rs         winit event loop, surface, input mapping, the slot grid
+  save_screen.rs  The default SaveScreen: a GameplayView plus a hit test
+  slots_fs.rs     Reading and writing slot files, atomically
+  plugins.rs      Resolving a module name a story uses to a .wasm on disk
   assets.rs       Procedural placeholder art
 ```
 
@@ -226,9 +230,11 @@ GPU is an environment fact, not a regression.
 
 ## 8. Known gaps
 
-- **No rollback history for players.** `SaveState` supports it, but nothing keeps a ring of
-  past snapshots yet — that needs UI for picking a point, not just storage. Authors do have a
-  timeline of document states (ADR 0014); a player has save files.
+- **No rollback history for players.** `SaveState` supports it, and the slot grid (ADR 0018) gives
+a player named stopping points, but nothing keeps a ring of past snapshots within one session.
+Authors do have a timeline of document states (ADR 0014).
+- **No save thumbnails.** The model carries a `Thumbnail`, the screen emits an `Image` for one, and
+  nothing captures it: that needs a GPU readback at save time and a field in the save format.
 - **No audio mixing.** One music track plus one-shot effects, both driven by beats. Layered
   ambience needs a mixer, and a mixer written before a story asks for one is speculative. See
   ADR 0009.
