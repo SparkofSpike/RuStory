@@ -134,6 +134,16 @@ pub fn top_bar(app: &mut EditorApp, ui: &mut egui::Ui) {
                 app.redo_pending();
             }
 
+            // A shortcut nobody can find is not a shortcut. The list is short enough to show
+            // in full, which beats a tooltip per button.
+            if ui
+                .button("?")
+                .on_hover_text("Keys and controls (F1)")
+                .clicked()
+            {
+                app.show_help = !app.show_help;
+            }
+
             ui.separator();
 
             if let Some(editor) = &app.editor {
@@ -1273,6 +1283,67 @@ fn exit_form(
     });
 }
 
+/// The shortcut sheet.
+///
+/// A window rather than a panel: the list is short, and covering the story while it is open
+/// would mean closing it to look something up. F1 toggles it, and so does the `?` button.
+pub fn help_window(app: &mut EditorApp, ui: &mut egui::Ui) {
+    if !app.show_help {
+        return;
+    }
+
+    let mut open = true;
+    egui::Window::new("Keys and controls")
+        .open(&mut open)
+        .resizable(false)
+        .collapsible(false)
+        // Centred by default: opening on top of the node list hides the thing the reader was
+        // about to look at, and a help window that has to be dragged before it is useful is
+        // a help window people stop opening.
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ui.ctx(), |ui| {
+            let mut row = |keys: &str, what: &str| {
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [120.0, 18.0],
+                        egui::Label::new(egui::RichText::new(keys).monospace()),
+                    );
+                    ui.label(what);
+                });
+            };
+
+            row("Ctrl+N", "New story");
+            row("Ctrl+O", "Open a story");
+            row("Ctrl+S", "Save");
+            row("Ctrl+Shift+S", "Save as");
+            row("Ctrl+Z", "Undo");
+            row("Ctrl+Y", "Redo");
+            row("F1", "This list");
+
+            ui.separator();
+            ui.label(egui::RichText::new("Preview").strong());
+            ui.label("Click the picture to advance.");
+            ui.label("A branch appears as buttons under it.");
+            ui.label("The slider rewinds along the path already taken.");
+
+            ui.separator();
+            ui.label(egui::RichText::new("Editing").strong());
+            ui.label("Each beat row has + (insert a copy after it), Up, Dn and Del.");
+            ui.label("Text fields are applied as you type; every edit is one undo step.");
+            ui.label("Saving rewrites the file from its data, so comments are not kept.");
+
+            ui.separator();
+            ui.label(egui::RichText::new("Recovery").strong());
+            ui.label("Unsaved work is also written beside the story, as .draft.ron.");
+            ui.label("The next open offers it back; nothing is restored silently.");
+        });
+
+    // The window's own close button has to be honoured as well as the toggle.
+    if !open {
+        app.show_help = false;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1296,3 +1367,4 @@ mod tests {
         assert!(!matches_filter(&NodeId::from("prologue"), "epilogue"));
     }
 }
+

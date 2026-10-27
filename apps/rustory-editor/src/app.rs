@@ -103,6 +103,8 @@ pub struct EditorApp {
     /// Once per document: asking on every save would train people to dismiss the dialog
     /// without reading it, which is worse than not asking.
     comment_warning_seen: bool,
+    /// Whether the shortcut sheet is open.
+    pub show_help: bool,
 }
 
 impl EditorApp {
@@ -128,6 +130,7 @@ impl EditorApp {
             draft: None,
             draft_due: None,
             comment_warning_seen: false,
+            show_help: false,
         };
 
         // A list that mentions files deleted outside the editor is worse than a short
@@ -536,9 +539,10 @@ impl eframe::App for EditorApp {
                 command && !shift && input.key_pressed(egui::Key::S),
                 command && input.key_pressed(egui::Key::O),
                 command && input.key_pressed(egui::Key::N),
+                input.key_pressed(egui::Key::F1),
             )
         });
-        let (undo, redo, save_as, save, open, new) = shortcuts;
+        let (undo, redo, save_as, save, open, new, help) = shortcuts;
 
         if undo {
             self.undo();
@@ -558,6 +562,9 @@ impl eframe::App for EditorApp {
         if new {
             self.pending_actions.push(UiAction::New);
         }
+        if help {
+            self.show_help = !self.show_help;
+        }
 
         // Close guard. Runs before layout so a cancel takes effect this frame.
         if ui.ctx().input(|input| input.viewport().close_requested()) && !self.close_confirmed {
@@ -576,6 +583,7 @@ impl eframe::App for EditorApp {
         panels::node_list(self, ui);
         panels::inspector(self, ui);
         panels::beat_editor(self, ui);
+        panels::help_window(self, ui);
 
         // Everything the panels asked for lands here, after layout, so the story is
         // not borrowed while it is being changed.

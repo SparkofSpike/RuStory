@@ -71,6 +71,11 @@ only one program's worth of rules.
 
 ![Editor](shots/editor.png)
 
+Every shortcut is also on screen: **F1** (or the `?` button) opens the list, because a key
+nobody can find is not a shortcut.
+
+![Keys and controls](shots/editor-help.png)
+
 ```console
 $ cargo run -p rustory-editor                        # new story
 $ cargo run -p rustory-editor -- stories/demo.ron    # open an existing one
