@@ -117,7 +117,7 @@ intermediate, and this ADR should be superseded.
 
 ## Verification
 
-- `cargo test --workspace` — 231 tests. `rustory-edit` contributes 51 of them, covering
+- `cargo test --workspace` — 240 tests. `rustory-edit` contributes 60 of them, covering
   every operation, every refusal, batch rollback, undo/redo, and a lossless save/reload
   round-trip including non-ASCII text.
 - `rustory ops --json` prints the operation vocabulary with `changes_structure` flags.
@@ -195,3 +195,27 @@ following a branch does not mean remembering a node name and scrolling to find i
 node list has a filter for the same reason �� a story with thirty nodes is a list you scan,
 and scanning is what a filter is for. Neither feature touches the story, which is why
 neither needs an operation, a test of atomicity, or a place in the CLI.
+
+## Recovering work, and the cost of rewriting a file
+
+Two problems that only appear after people have been using the editor for a while.
+
+**A crash loses everything since the last save.** The close guard covers polite exits and
+nothing else — a power cut, a driver crash, a closed laptop lid do not ask. While a document
+has unsaved changes it is therefore written beside the story as `<story>.draft.ron`, two
+seconds after typing stops. On the next open the author is asked whether to take it, and
+"no" deletes it: both answers are destructive, so neither can be the silent default. A draft
+that will not parse is discarded without asking — the file on disk is still there, and
+offering a document that will not open turns a recovery into a puzzle.
+
+**Saving deletes comments.** A story is a data structure; RON comments are not part of one.
+Saving rewrites the file from the structure, so notes an author wrote in their script are
+gone, and the formatting is the editor's. This is inherent to an editor built on
+`EditOp`s over a typed model (ADR 0008's premise), and preserving comments would need a
+span-preserving parser — a much larger piece of software than the editor itself.
+
+The choice was to be honest rather than silent: `Document::source_has_comments` detects the
+case roughly (a `//` inside a string counts, which is the safe direction to be wrong in) and
+the editor warns once per document before the first overwrite. A person who keeps notes in
+their script can decline the save and use the CLI, which writes the same structure but is
+used deliberately rather than by muscle memory.

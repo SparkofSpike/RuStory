@@ -19,6 +19,7 @@
 use std::path::{Path, PathBuf};
 
 use rustory_core::NodeId;
+use rustory_edit::Draft;
 use rustory_edit::Editor;
 use rustory_edit::prelude::*;
 
@@ -86,6 +87,22 @@ pub struct EditorApp {
     /// Files opened recently, newest first. Persisted between runs so a person who
     /// edits one chapter every evening does not have to find it in a dialog again.
     pub recent: RecentFiles,
+
+    /// Where the working copy of the open document is written while it has unsaved
+    /// changes. `None` for an untitled story: a draft with no story to belong to has no
+    /// place to live and nothing to recover it into.
+    pub draft: Option<Draft>,
+    /// When to write the draft, if a write is pending.
+    ///
+    /// Debounced rather than written per keystroke: an editor that writes a file on every
+    /// character is a filesystem benchmark, and a crash one second after a change is still
+    /// covered by a two-second delay.
+    draft_due: Option<std::time::Instant>,
+    /// Whether the author has already agreed to lose the comments in this document.
+    ///
+    /// Once per document: asking on every save would train people to dismiss the dialog
+    /// without reading it, which is worse than not asking.
+    comment_warning_seen: bool,
 }
 
 impl EditorApp {
@@ -108,6 +125,9 @@ impl EditorApp {
             pending_actions: Vec::new(),
             close_confirmed: false,
             recent: RecentFiles::load(),
+            draft: None,
+            draft_due: None,
+            comment_warning_seen: false,
         };
 
         // A list that mentions files deleted outside the editor is worse than a short
@@ -138,6 +158,11 @@ impl EditorApp {
             return;
         }
 
+        // Before reading the file: a draft left by a crash is offered, not applied. If the
+        // author takes it, the file itself is rewritten, which is why the dialog spells out
+        // both outcomes.
+        self.settle_draft(&path);
+
         match Editor::open(&path) {
             Ok(editor) => {
                 self.selected = Some(editor.story().start.clone());
@@ -147,6 +172,9 @@ impl EditorApp {
                 // Art is looked up beside the story, not beside the process. Opening a
                 // project from a different directory must not silently lose its images.
                 self.assets = AssetPaths::beside(&path);
+                self.draft = Draft::beside(&path);
+                self.draft_due = None;
+                self.comment_warning_seen = false;
                 self.remember(&path);
                 self.set_status(format!("Opened {}", path.display()), false);
             }
@@ -158,6 +186,71 @@ impl EditorApp {
                 }
                 self.set_status(err.to_string(), true);
             }
+        }
+    }
+
+    /// Deal with a draft left beside `path`, if there is one.
+    ///
+    /// Three outcomes: none there, recovered, or discarded. A draft that cannot be parsed is
+    /// discarded silently — the author still has the file, and offering a document that will
+    /// not open would turn a recovery into a puzzle.
+    fn settle_draft(&mut self, path: &Path) {
+        let Some(draft) = Draft::beside(path) else {
+            return;
+        };
+        if !draft.exists() {
+            return;
+        }
+
+        let Some(story) = draft.read() else {
+            draft.discard();
+            return;
+        };
+
+        let name = path.file_name().map_or_else(
+            || path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+
+        if !dialogs::confirm_recover(&name) {
+            draft.discard();
+            return;
+        }
+
+        match draft.recover_into(&story, path) {
+            Ok(()) => self.set_status(format!("Recovered unsaved changes to {name}"), false),
+            Err(err) => self.set_status(format!("Could not recover: {err}"), true),
+        }
+    }
+
+    /// Write the working copy, now that the debounce has expired.
+    ///
+    /// Called every frame and almost always does nothing. A failure is reported once and the
+    /// pending write is dropped: retrying a full disk sixty times a second helps nobody.
+    fn write_draft_if_due(&mut self) {
+        let Some(due) = self.draft_due else {
+            return;
+        };
+        if std::time::Instant::now() < due {
+            return;
+        }
+        self.draft_due = None;
+
+        // Taken out of `self` while writing: `Draft::write` borrows the draft, and `set_status`
+        // borrows the whole app.
+        let Some(draft) = self.draft.clone() else {
+            return;
+        };
+        let Some(editor) = self.editor.as_ref() else {
+            return;
+        };
+        if !editor.is_dirty() {
+            return;
+        }
+
+        match draft.write(editor.story()) {
+            Ok(()) => {}
+            Err(err) => self.set_status(format!("Could not write the recovery copy: {err}"), true),
         }
     }
 
@@ -183,6 +276,10 @@ impl EditorApp {
         self.preview_steps.clear();
         self.preview.reset();
         self.assets = AssetPaths::from_cwd();
+        // No file, so nothing to sit a draft beside. The first save adopts one.
+        self.draft = None;
+        self.draft_due = None;
+        self.comment_warning_seen = false;
         self.set_status("New story — save it to choose a location", false);
     }
 
@@ -204,6 +301,13 @@ impl EditorApp {
         );
 
         if dialogs::confirm_discard(&name) {
+            // The author has just said the work can go, so the recovery copy goes with it.
+            // Leaving it behind would offer it back on the next open, which is the opposite
+            // of what was just decided.
+            if let Some(draft) = &self.draft {
+                draft.discard();
+            }
+            self.draft_due = None;
             true
         } else {
             self.set_status("Kept the unsaved story open", false);
@@ -238,6 +342,12 @@ impl EditorApp {
         let ops = std::mem::take(&mut self.pending);
         if ops.is_empty() {
             return;
+        }
+
+        // Scheduling the draft before the borrow of `editor` below: the write itself happens
+        // in `write_draft_if_due`, once the debounce has expired.
+        if self.draft.is_some() {
+            self.draft_due = Some(std::time::Instant::now() + std::time::Duration::from_secs(2));
         }
 
         let Some(editor) = self.editor.as_mut() else {
@@ -314,13 +424,46 @@ impl EditorApp {
             return;
         }
 
+        // Before the first overwrite of this document: saving rewrites the file from the data
+        // model, and comments are not part of one.
+        if !self.comment_warning_seen {
+            let has_comments = self
+                .editor
+                .as_ref()
+                .is_some_and(|editor| editor.document().source_has_comments());
+            if has_comments {
+                let name = path.file_name().map_or_else(
+                    || path.display().to_string(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
+                if !dialogs::confirm_rewrite(&name) {
+                    self.set_status("Save cancelled; the file is unchanged", false);
+                    return;
+                }
+                self.comment_warning_seen = true;
+            }
+        }
+
         let Some(editor) = self.editor.as_mut() else {
             return;
         };
         match editor.save() {
-            Ok(()) => self.set_status(format!("Saved {}", path.display()), false),
+            Ok(()) => {
+                // The file is now what the document says, so the recovery copy is stale by
+                // definition. Leaving it would offer the author work they already saved.
+                self.drop_draft();
+                self.set_status(format!("Saved {}", path.display()), false);
+            }
             Err(err) => self.set_status(err.to_string(), true),
         }
+    }
+
+    /// Remove the working copy and cancel any pending write.
+    fn drop_draft(&mut self) {
+        if let Some(draft) = &self.draft {
+            draft.discard();
+        }
+        self.draft_due = None;
     }
 
     fn save_as(&mut self) {
@@ -341,6 +484,10 @@ impl EditorApp {
                 // The assets move with the story: saving a chapter into a project
                 // directory should look for that project's art.
                 self.assets = AssetPaths::beside(&path);
+                // The document has a new home, and so does its working copy — and the old
+                // draft, if any, describes a file that is no longer this one.
+                self.drop_draft();
+                self.draft = Draft::beside(&path);
                 self.remember(&path);
                 self.set_status(format!("Saved {}", path.display()), false);
             }
@@ -433,5 +580,13 @@ impl eframe::App for EditorApp {
         // Everything the panels asked for lands here, after layout, so the story is
         // not borrowed while it is being changed.
         self.flush();
+
+        // The working copy. egui only redraws on input by default, and a debounced write has
+        // to happen while the author is sitting still — exactly when nothing is repainting.
+        if let Some(due) = self.draft_due {
+            let wait = due.saturating_duration_since(std::time::Instant::now());
+            ui.ctx().request_repaint_after(wait);
+            self.write_draft_if_due();
+        }
     }
 }

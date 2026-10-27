@@ -101,6 +101,27 @@ impl Document {
         &self.path
     }
 
+    /// Whether the file on disk contains comments that saving would delete.
+    ///
+    /// A [`Story`] is a data structure; RON comments are not part of it. Saving therefore
+    /// rewrites the file from the structure and the comments are gone — which is correct for
+    /// the format and surprising for a person who annotated their script. The caller is
+    /// expected to warn before the first overwrite, so this answers the question honestly
+    /// rather than leaving the loss to be discovered later.
+    ///
+    /// Deliberately approximate: a `//` inside a string is counted as a comment. A false
+    /// positive costs one confirmation dialog; a false negative costs the author their notes.
+    #[must_use]
+    pub fn source_has_comments(&self) -> bool {
+        if !self.saved {
+            return false;
+        }
+        let Ok(text) = std::fs::read_to_string(&self.path) else {
+            return false;
+        };
+        text.contains("//") || text.contains("/*")
+    }
+
     /// Point the document at a different file, for "save as".
     pub fn set_path(&mut self, path: impl Into<PathBuf>) {
         self.path = path.into();
@@ -174,5 +195,81 @@ impl Document {
                 message: err.to_string(),
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rustory_core::{Exit, Node, NodeId, StoryMeta};
+
+    fn story() -> Story {
+        let mut nodes = std::collections::BTreeMap::new();
+        nodes.insert(
+            NodeId::from("start"),
+            Node {
+                beats: Vec::new(),
+                exit: Exit::End { ending: None },
+            },
+        );
+        Story {
+            meta: StoryMeta::default(),
+            start: NodeId::from("start"),
+            nodes,
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("rustory-document-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        dir
+    }
+
+    #[test]
+    fn comments_in_the_source_are_detected() {
+        let dir = scratch("comments");
+        let path = dir.join("story.ron");
+
+        // Produce a file the parser accepts, then annotate it the way an author would.
+        let mut document = Document::new(story(), &path);
+        document.save_as(&path).expect("writes");
+        let body = std::fs::read_to_string(&path).expect("read");
+        std::fs::write(&path, format!("// a note\n{body}")).expect("write");
+
+        let document = Document::open(&path).expect("opens");
+        assert!(
+            document.source_has_comments(),
+            "saving this file would delete the note"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_without_comments_says_so() {
+        let dir = scratch("clean");
+        let path = dir.join("story.ron");
+
+        // Written by the editor itself, which never emits comments.
+        let mut document = Document::new(story(), &path);
+        document.save_as(&path).expect("writes");
+
+        let reopened = Document::open(&path).expect("opens");
+        assert!(!reopened.source_has_comments());
+
+        // And a saved copy on disk really is comment-free: the round trip through the
+        // structure is what makes the warning necessary in the first place.
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(!text.contains("//"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_untitled_document_has_no_source_to_lose() {
+        let document = Document::untitled(story());
+        assert!(!document.source_has_comments());
     }
 }

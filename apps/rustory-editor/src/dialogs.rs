@@ -78,6 +78,48 @@ pub fn confirm_discard(story_name: &str) -> bool {
         == rfd::MessageDialogResult::Yes
 }
 
+/// Ask whether to restore a draft left by a crash.
+///
+/// Wording matters more than usual here: "yes" overwrites the file on disk, and "no" deletes
+/// the only copy of the work. Both answers are destructive, so neither can be the silent
+/// default.
+#[must_use]
+pub fn confirm_recover(story_name: &str) -> bool {
+    rfd::MessageDialog::new()
+        .set_title("Recover unsaved work?")
+        .set_description(format!(
+            "`{story_name}` was being edited when the editor closed without saving.\n\n\
+             Yes: replace the file with the recovered version.\n\
+             No: keep the file as it is and delete the recovered copy."
+        ))
+        .set_level(rfd::MessageLevel::Warning)
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        == rfd::MessageDialogResult::Yes
+}
+
+/// Ask whether to overwrite a file whose comments the save will delete.
+///
+/// A story is a data structure; RON comments are not part of one. Saving therefore rewrites
+/// the file from the structure, and any notes the author wrote are gone. That is correct for
+/// the format and rude for the author, so it is said out loud once per session rather than
+/// discovered afterwards.
+#[must_use]
+pub fn confirm_rewrite(name: &str) -> bool {
+    rfd::MessageDialog::new()
+        .set_title("Comments will be removed")
+        .set_description(format!(
+            "`{name}` contains comments.\n\n\
+             Saving rewrites a story from its data, and comments are not data, so they will \
+             be removed. The rest of the file keeps its content, in the editor's formatting.\n\n\
+             Save anyway?"
+        ))
+        .set_level(rfd::MessageLevel::Warning)
+        .set_buttons(rfd::MessageButtons::YesNo)
+        .show()
+        == rfd::MessageDialogResult::Yes
+}
+
 /// Append the story extension when the dialog did not.
 #[must_use]
 pub fn ensure_extension(mut path: PathBuf) -> PathBuf {

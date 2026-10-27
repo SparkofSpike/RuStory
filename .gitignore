@@ -22,3 +22,7 @@
 # belongs there, not in these files.
 /AGENTS.md
 /HANDOFF.md
+
+# Crash-recovery copies written beside a story while it has unsaved changes.
+# Working files, like target/: recoverable, not deliverables.
+*.draft.ron

@@ -36,12 +36,14 @@
 
 mod apply;
 mod document;
+mod draft;
 mod editor;
 mod error;
 mod op;
 
 pub use crate::apply::Reference;
 pub use document::Document;
+pub use draft::Draft;
 pub use editor::{BatchError, Editor, HISTORY_LIMIT, HistoryEntry, problems_of};
 pub use error::EditError;
 pub use op::EditOp;
