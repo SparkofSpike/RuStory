@@ -40,6 +40,13 @@ SemVer once there is a published version to be compatible with.
   release. No hover: nothing shipped needs it.
 - **`rustory-editor`'s history panel** on `Ctrl+H`: every state the open tab can jump to, labelled
   with the operation that produced it.
+- **A save screen.** `F5` / `F9` open a 3×3 grid plus a quick slot, each card showing the story
+  title, the node, the line the player was on and the language. Four states, each said in its own
+  words: empty, occupied, damaged, and written for a different story version. `GridScreen` is the
+  default behind a `SaveScreen` trait, so a project can replace it wholesale.
+- **`rustory saves <story>`** lists the same slots from a terminal, `--json` for a program,
+  `--delete <slot>` to remove one, and `--shot out.png --mode load` to render the screen without a
+  window.
 
 ### Changed
 

@@ -31,7 +31,8 @@ const HINT: &str = "Click / Space: advance   1-9: choose   F5: save   F9: load  
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut story_path = None;
     let mut assets = PathBuf::from("assets");
-    let mut save_path = PathBuf::from("save.ron");
+    // `None` means the slot grid; `Some` means a caller pinned one file to a path.
+    let mut pinned_slot: Option<PathBuf> = None;
     let mut font = None;
     let mut mute = false;
     let mut language: Option<String> = None;
@@ -46,7 +47,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             "--save-slot" => {
                 index += 1;
-                save_path = PathBuf::from(args.get(index).ok_or("--save-slot needs a path")?);
+                pinned_slot = Some(PathBuf::from(
+                    args.get(index).ok_or("--save-slot needs a path")?,
+                ));
             }
             "--font" => {
                 index += 1;
@@ -116,7 +119,15 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Continuous redraw: the typewriter needs frames even when nothing moves.
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut player = Player::new(narrative, registry, assets, save_path, font, mute);
+    let mut player = Player::new(
+        narrative,
+        registry,
+        assets,
+        rustory_vn_core::SlotLayout::beside(&story_path),
+        pinned_slot,
+        font,
+        mute,
+    );
     event_loop
         .run_app(&mut player)
         .map_err(|err| err.to_string())
@@ -136,9 +147,26 @@ struct Player {
     /// Family name requested on the command line, applied once the renderer's font
     /// database exists. `None` means the platform's default sans-serif.
     font: Option<String>,
-    /// Where F5 writes and F9 reads. A single slot keeps the mental model small;
-    /// multiple slots would need a save browser before they were worth having.
-    save_path: PathBuf,
+    /// Where the saves live, and how many numbered slots there are.
+    ///
+    /// `--save-slot <path>` overrides this with a single-file layout: the old behaviour, kept
+    /// because a script that resumes one particular file has no use for a grid. Without it the
+    /// layout is `<story dir>/saves/`, beside the story, so a project is one folder to copy.
+    slots: rustory_vn_core::SlotLayout,
+    /// Which save slot the command line pinned, if any. When `Some`, F5/F9 write and read that
+    /// file and no screen opens — a caller who named a file wants that file.
+    pinned_slot: Option<std::path::PathBuf>,
+    /// The save screen, or `None` while the player is playing.
+    ///
+    /// A `Box<dyn SaveScreen>` rather than a concrete type because the layer's whole point is to
+    /// be replaceable: a project with its own menu art supplies its own screen and nothing else
+    /// changes.
+    save_screen: Option<Box<dyn crate::save_screen::SaveScreen>>,
+    /// Which mode the open screen is in.
+    screen_mode: crate::save_screen::ScreenMode,
+    /// The last slot read from disk, so a screen drawn every frame does not stat files every
+    /// frame. Refreshed when the screen opens and after every write.
+    slot_index: rustory_vn_core::SlotIndex,
     /// Transient message shown in the hint line, so a save or a failed load is
     /// visible without a console.
     notice: Option<String>,
@@ -170,7 +198,8 @@ impl Player {
         narrative: Narrative,
         registry: GameplayRegistry,
         assets: PathBuf,
-        save_path: PathBuf,
+        slots: rustory_vn_core::SlotLayout,
+        pinned_slot: Option<PathBuf>,
         font: Option<String>,
         mute: bool,
     ) -> Self {
@@ -196,7 +225,11 @@ impl Player {
             registry,
             assets,
             font,
-            save_path,
+            pinned_slot,
+            slots,
+            save_screen: None,
+            screen_mode: crate::save_screen::ScreenMode::Save,
+            slot_index: rustory_vn_core::SlotIndex::new(),
             notice: None,
             notice_until: None,
             window: None,
@@ -209,23 +242,49 @@ impl Player {
         }
     }
 
-    /// Write the current state to the save slot.
-    fn save_to_slot(&mut self) {
-        let result = self.narrative.save(&self.registry).and_then(|save| {
-            save.to_ron()
-                .map_err(|err| rustory_vn_core::CoreError::GameplaySaveFailed {
-                    system: "save".into(),
-                    message: err.to_string(),
-                })
-        });
+    /// Write the current state to a slot.
+    ///
+    /// In single-file mode (`--save-slot`) this is the old behaviour: one file, a notice, done.
+    /// Otherwise it goes through the slot layout, which writes atomically and can create its
+    /// directory on a first save.
+    fn save_to_slot(&mut self, slot: rustory_vn_core::SaveSlot) {
+        let state = match self.narrative.save(&self.registry) {
+            Ok(state) => state,
+            Err(err) => {
+                self.set_notice(format!("Save failed: {err}"));
+                return;
+            }
+        };
 
-        match result {
-            Ok(text) => match std::fs::write(&self.save_path, text) {
-                Ok(()) => self.set_notice(format!("Saved to {}", self.save_path.display())),
+        if let Some(path) = &self.pinned_slot {
+            match state
+                .to_ron()
+                .map_err(|err| err.to_string())
+                .and_then(|text| std::fs::write(path, text).map_err(|err| err.to_string()))
+            {
+                Ok(()) => self.set_notice(format!("Saved to {}", path.display())),
                 Err(err) => self.set_notice(format!("Save failed: {err}")),
-            },
+            }
+            return;
+        }
+
+        let context = crate::slots_fs::SlotContext {
+            title: self.narrative.story().meta.title.clone(),
+            // The line the player was looking at is what a menu needs to recognise this save.
+            line: self
+                .narrative
+                .line()
+                .map(|line| crate::scene::line_summary(&line)),
+        };
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_millis() as u64);
+
+        match crate::slots_fs::write(&self.slots, slot, &state, &context, at) {
+            Ok(_) => self.set_notice(format!("Saved to slot {}", slot.label())),
             Err(err) => self.set_notice(format!("Save failed: {err}")),
         }
+        self.refresh_slots();
     }
 
     /// Show a message on the hint line for a few seconds.
@@ -234,16 +293,21 @@ impl Player {
         self.notice_until = Some(Instant::now() + std::time::Duration::from_secs(3));
     }
 
-    /// Replace the running session with whatever is in the save slot.
+    /// Replace the running session with whatever is in `slot`.
     ///
     /// A failed load leaves the current session untouched: refusing to load is
     /// recoverable, while half-restoring would destroy the run in progress.
-    fn load_from_slot(&mut self) {
+    fn load_from_slot(&mut self, slot: rustory_vn_core::SaveSlot) {
         let outcome = (|| -> Result<(), String> {
-            let text = std::fs::read_to_string(&self.save_path)
-                .map_err(|err| format!("cannot read {}: {err}", self.save_path.display()))?;
-            let save =
-                rustory_vn_core::SaveState::from_ron(&text).map_err(|err| err.to_string())?;
+            let save = if let Some(path) = &self.pinned_slot {
+                let text = std::fs::read_to_string(path)
+                    .map_err(|err| format!("cannot read {}: {err}", path.display()))?;
+                rustory_vn_core::SaveState::from_ron(&text).map_err(|err| err.to_string())?
+            } else {
+                crate::slots_fs::read(&self.slots, slot)
+                    .map_err(|err| err.to_string())?
+                    .ok_or_else(|| format!("slot {} is empty", slot.label()))?
+            };
             let story = self.narrative.story().clone();
             let restored = Narrative::from_save(story, &save, &mut self.registry)
                 .map_err(|err| err.to_string())?;
@@ -264,9 +328,50 @@ impl Player {
         }
 
         self.set_notice(match outcome {
-            Ok(()) => format!("Loaded {}", self.save_path.display()),
+            Ok(()) => format!("Loaded slot {}", slot.label()),
             Err(err) => format!("Load failed: {err}"),
         });
+    }
+
+    /// Re-read every slot's summary.
+    ///
+    /// Called when the screen opens and after every write, never per frame: a screen drawn sixty
+    /// times a second must not stat eleven files sixty times a second.
+    fn refresh_slots(&mut self) {
+        self.slot_index = crate::slots_fs::read_all_with_times(&self.slots, self.narrative.story());
+    }
+
+    /// Open the slot grid in `mode`, or act directly when a slot was pinned.
+    fn open_save_screen(&mut self, mode: crate::save_screen::ScreenMode) {
+        if let Some(path) = self.pinned_slot.clone() {
+            // The caller named a file, so writing or reading it needs no screen.
+            let _ = path;
+            match mode {
+                crate::save_screen::ScreenMode::Save => {
+                    self.save_to_slot(rustory_vn_core::SaveSlot::Quick)
+                }
+                crate::save_screen::ScreenMode::Load => {
+                    self.load_from_slot(rustory_vn_core::SaveSlot::Quick)
+                }
+            }
+            return;
+        }
+
+        self.refresh_slots();
+        self.screen_mode = mode;
+        self.save_screen = Some(Box::new(crate::save_screen::GridScreen));
+    }
+
+    /// Close the screen without acting.
+    fn close_save_screen(&mut self) {
+        self.save_screen = None;
+    }
+
+    /// The draw list for the open screen, if one is open.
+    fn screen_view(&self) -> Option<rustory_vn_core::GameplayView> {
+        self.save_screen
+            .as_ref()
+            .map(|screen| screen.view(&self.slot_index, &self.slots, self.screen_mode))
     }
 
     fn init_gpu(&mut self, window: Arc<Window>) -> Result<(), String> {
@@ -371,11 +476,16 @@ impl Player {
             self.notice_until = None;
         }
 
-        // A gameplay system drives its own clock, so the narrative is ticked
-        // separately: while suspended there is no line to reveal anyway.
-        self.narrative.tick(dt_ms, CHARS_PER_SEC);
+        // A screen pauses the story rather than hiding it: time spent deciding where to save is
+        // not time spent reading, and a countdown that kept running behind a menu would be a
+        // scene lost while the player was looking at something else.
+        if self.save_screen.is_some() {
+            self.pending_inputs.clear();
+        } else {
+            self.narrative.tick(dt_ms, CHARS_PER_SEC);
+        }
 
-        if matches!(self.narrative.mode(), Mode::Suspended { .. }) {
+        if self.save_screen.is_none() && matches!(self.narrative.mode(), Mode::Suspended { .. }) {
             let inputs = std::mem::take(&mut self.pending_inputs);
             if let Err(err) = self
                 .narrative
@@ -399,11 +509,17 @@ impl Player {
         self.audio.handle(&events);
         self.audio.tick(dt_ms);
 
+        // Built before the GPU borrow: computing a screen needs the whole `self`, and holding a
+        // mutable borrow of `gpu` across it is what the compiler is objecting to.
+        let view = match self.screen_view() {
+            Some(screen) => Some(screen),
+            None => self.narrative.gameplay_view(&self.registry),
+        };
+
         let Some(gpu) = self.gpu.as_mut() else {
             return;
         };
 
-        let view = self.narrative.gameplay_view(&self.registry);
         // The window may be a different size than the logical resolution; the
         // scene is laid out at the logical size and scaled by the surface.
         let mut frame = driver::build_frame(
@@ -441,6 +557,37 @@ impl Player {
     }
 
     fn on_confirm(&mut self) {
+        // An open screen takes the click first, and nothing else sees it: a click meant for
+        // "load slot 3" must not also advance the story behind the menu.
+        if let Some(screen) = self.save_screen.as_ref() {
+            let Some((x, y)) = self.cursor_design else {
+                return;
+            };
+            let Some(slot) = screen.slot_at(x, y, &self.slots) else {
+                return;
+            };
+            let summary = self.slot_index.get(slot).cloned();
+
+            // In Load an empty or damaged slot does nothing. Redrawing is the whole feedback: the
+            // card is already drawn muted, and a notice would cover the thing the player needs to
+            // look at to work out which slot is which.
+            if self.screen_mode == crate::save_screen::ScreenMode::Load
+                && summary
+                    .as_ref()
+                    .is_none_or(|summary| summary.is_empty() || summary.problem.is_some())
+            {
+                return;
+            }
+
+            let mode = self.screen_mode;
+            self.close_save_screen();
+            match mode {
+                crate::save_screen::ScreenMode::Save => self.save_to_slot(slot),
+                crate::save_screen::ScreenMode::Load => self.load_from_slot(slot),
+            }
+            return;
+        }
+
         // A gameplay system that draws a pointer-driven screen gets the press too, so it can
         // decide from a position rather than from "somewhere was clicked". Both arrive: the
         // system ignores whichever it does not use, and a countdown that has always used
@@ -619,9 +766,18 @@ impl ApplicationHandler for Player {
                     return;
                 }
                 match event.physical_key {
+                    // Esc closes an open screen before it closes the game: the screen is a mode, and
+                    // a player who opened it by accident means "never mind", not "quit".
+                    PhysicalKey::Code(KeyCode::Escape) if self.save_screen.is_some() => {
+                        self.close_save_screen();
+                    }
                     PhysicalKey::Code(KeyCode::Escape) => event_loop.exit(),
-                    PhysicalKey::Code(KeyCode::F5) => self.save_to_slot(),
-                    PhysicalKey::Code(KeyCode::F9) => self.load_from_slot(),
+                    PhysicalKey::Code(KeyCode::F5) => {
+                        self.open_save_screen(crate::save_screen::ScreenMode::Save);
+                    }
+                    PhysicalKey::Code(KeyCode::F9) => {
+                        self.open_save_screen(crate::save_screen::ScreenMode::Load);
+                    }
                     PhysicalKey::Code(KeyCode::Space | KeyCode::Enter) => self.on_confirm(),
                     PhysicalKey::Code(code) => {
                         if let Some(index) = digit_index(code) {

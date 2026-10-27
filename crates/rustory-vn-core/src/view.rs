@@ -288,6 +288,16 @@ impl GameplayView {
         self
     }
 
+    /// Appends every element of `other`, keeping this view's order first.
+    ///
+    /// The operation a screen composed of sub-views needs: a save-slot grid builds one card at a
+    /// time, and splicing by hand at each call site is where an off-by-one in z-order lives.
+    #[must_use]
+    pub fn extend(mut self, other: GameplayView) -> Self {
+        self.elements.extend(other.elements);
+        self
+    }
+
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.elements.is_empty()

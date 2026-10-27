@@ -55,9 +55,10 @@ and the contract gets fixed — not the core.
 - Click to advance; first click completes the line, second advances
 - Branching choices
 - Gameplay handover, with **two** systems: a timed choice and a multi-round quiz
-- **Save and load**, including gameplay state mid-system (`F5` / `F9` in a window)
+- **Save and load**, including gameplay state mid-system: `F5` / `F9` open a slot grid, and
+  `rustory saves` lists the same slots from a terminal
 - `rustory play` in a window, or `rustory shot` to render a frame headlessly
-- 369 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
+- 404 tests, including offscreen GPU renders, colour round-trips, and 81 in `rustory-vn-edit`
 
 Not yet: player rollback history, a hover or drag gesture. Those have ADRs describing the
 plan, not code pretending to be one.
@@ -207,6 +208,19 @@ Kai: I was waiting for you.
 |---|---|---|---|
 | ![dialogue](shots/dialogue.png) | ![choice](shots/choice.png) | ![a timed choice](shots/gameplay-timer.png) | ![a quiz](shots/gameplay-quiz.png) |
 
+A gameplay system's screen is a list of elements it returns, not draw calls: text, panels, images
+and bars in a 1280×720 box, coloured by role. That is what lets a third-party system — including
+a WebAssembly module — draw a board without learning the renderer.
+
+The engine also ships the save screen, because every game needs one and nobody should implement
+the four states of an empty / occupied / damaged / wrong-version slot from scratch:
+
+![Save screen](shots/save-screen.png)
+
+`GridScreen` is the default behind a `SaveScreen` trait, so a project with its own menu art
+supplies its own and nothing else changes. `rustory saves <story> --shot out.png --mode load`
+renders it without a window.
+
 The art is generated procedurally by `rustory gen-assets` — no binaries in the
 repository, and the code that draws it is reviewable.
 
@@ -251,7 +265,7 @@ Requires Rust 1.87+ (edition 2024; the audio decoder needs 1.87) and, on Windows
 ```console
 cargo check --workspace     # fastest feedback
 cargo build                 # first run pulls the wgpu tree; minutes
-cargo test --workspace      # 369 tests; render tests skip without a GPU
+cargo test --workspace      # 404 tests; render tests skip without a GPU
 cargo run -p rustory-vn -- probe
 ```
 

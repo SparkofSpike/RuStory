@@ -26,6 +26,7 @@ deleted — it becomes `Superseded by NNNN` with the reasoning kept for the reco
 | [0015](0015-wasm-tier.md) | A third tier: gameplay that arrives as WebAssembly | Accepted, implemented | How does untrusted gameplay run without rebuilding the engine? |
 | [0016](0016-three-names.md) | Three names, each with one job | Accepted, implemented | What is this thing called? |
 | [0017](0017-wasm-plugins.md) | A story names its modules; the environment supplies them | Accepted, implemented | How does a script reach a WebAssembly module? |
+| [0018](0018-save-screen.md) | A default save screen, replaceable wholesale | Accepted, implemented | Who provides the screen a player saves from? |
 | [0019](0019-pointer-input.md) | Pointer input: two phases and no hover | Accepted, implemented | How does a player touch a board? |
 
 ## Status meanings
@@ -44,6 +45,8 @@ None of these are decided. Writing one is the first step before changing code.
   Input is still `Confirm` and `Select { index }`. Needs an ADR before code.
 - **Persisting the editing timeline**: history is in memory only. A named checkpoint file is
   the obvious next step; where it lives and how it interacts with git is undecided.
+- **Save thumbnails**: the save screen has a slot for one and nothing captures it. Needs a GPU
+  readback at save time and a format field.
 - **A wasm guest SDK**: the ABI is documented and an example exists, but there is no crate that
   wraps it. Worth writing once two guests exist.
 - **Hover and drag**: pointer input has `Pressed` and `Released` only. A system that needs to know

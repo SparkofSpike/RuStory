@@ -71,7 +71,7 @@ pub use gameplay::{
     ChoiceMade, GameplayContext, GameplayInput, GameplayRegistry, GameplaySystem,
     NarrativeSnapshot, PointerPhase, Stats, decode_state, encode_state,
 };
-pub use ids::{ActorId, NodeId, OutcomeKey, SystemId};
+pub use ids::{ActorId, NodeId, OutcomeKey, StoryId, SystemId};
 pub use narrative::{LineView, Mode, Narrative};
 pub use save::{GameplaySave, SAVE_VERSION, SaveState};
 pub use slots::{
@@ -85,11 +85,12 @@ pub use view::{Align, Element, GameplayView, Tone, VIEW_HEIGHT, VIEW_WIDTH, View
 /// The types almost every caller needs.
 pub mod prelude {
     pub use crate::{
-        ActorId, Align, Beat, Choice, ChoiceMade, CoreError, Element, Exit, GameplayContext,
-        GameplayInput, GameplayRegistry, GameplaySave, GameplaySpec, GameplaySystem, GameplayView,
-        LineView, LocaleTable, Locales, MissingText, Mode, Narrative, NarrativeEvent,
-        NarrativeSnapshot, Node, NodeId, OutcomeKey, PointerPhase, SAVE_VERSION, SaveState, Slot,
-        Stage, Stats, Story, StoryMeta, SystemId, Text, TickReport, Tone, VIEW_HEIGHT, VIEW_WIDTH,
-        ViewRect, decode_state, encode_state,
+        ActorId, Align, Beat, Choice, ChoiceMade, CoreError, DEFAULT_SLOTS, Element, Exit,
+        GameplayContext, GameplayInput, GameplayRegistry, GameplaySave, GameplaySpec,
+        GameplaySystem, GameplayView, LineView, LocaleTable, Locales, MissingText, Mode, Narrative,
+        NarrativeEvent, NarrativeSnapshot, Node, NodeId, OutcomeKey, PointerPhase, SAVE_VERSION,
+        SaveSlot, SaveState, Slot, SlotIndex, SlotLayout, SlotSummary, Stage, Stats, Story,
+        StoryId, StoryMeta, SystemId, Text, Thumbnail, TickReport, Tone, VIEW_HEIGHT, VIEW_WIDTH,
+        ViewRect, damaged, decode_state, encode_state, summarise,
     };
 }

@@ -11,7 +11,9 @@ mod driver;
 mod edit_cli;
 mod play;
 mod plugins;
+mod save_screen;
 mod scene;
+mod slots_fs;
 
 use std::path::{Path, PathBuf};
 
@@ -45,6 +47,7 @@ USAGE:
     rustory play <story.ron> [options]  Play it in a window
     rustory save <story.ron> [options]  Advance, then write a save file
     rustory resume <story.ron> <save>   Load a save and report where it resumes
+    rustory saves <story.ron> [--json]  List the slot grid's contents
     rustory editor [story.ron]          Open the visual editor
 
 EDITING (the agent interface):
@@ -100,6 +103,7 @@ fn run(args: &[String]) -> Result<(), String> {
         "play" => play::run(&args[1..]),
         "save" => save_cmd(&args[1..]),
         "resume" => resume_cmd(&args[1..]),
+        "saves" => saves_cmd(&args[1..]),
         "ops" => {
             let as_json = args.iter().any(|arg| arg == "--json");
             finish_quiet(edit_cli::ops(as_json), as_json)
@@ -804,6 +808,15 @@ fn save_cmd(args: &[String]) -> Result<(), String> {
 
     let save = narrative.save(&registry).map_err(|err| err.to_string())?;
     let text = save.to_ron().map_err(|err| err.to_string())?;
+
+    // Create the parent directory: `--out stories/saves/slot00.ron` on a fresh project used to
+    // fail with "no such path", which is a bad first five minutes for a documented command.
+    if let Some(parent) = out.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)
+            .map_err(|err| format!("cannot create {}: {err}", parent.display()))?;
+    }
     std::fs::write(&out, text).map_err(|err| format!("cannot write {}: {err}", out.display()))?;
 
     println!(
@@ -811,6 +824,196 @@ fn save_cmd(args: &[String]) -> Result<(), String> {
         out.display(),
         narrative.cursor(),
         driver::describe_mode(&narrative)
+    );
+    Ok(())
+}
+
+/// List the save slots a story has, in layout order.
+///
+/// The agent-facing half of the save screen: a program cannot look at a grid, and "which slot was
+/// I on" is exactly the question a resumed session asks. It shares `slots_fs` with the window, so
+/// the two cannot disagree about what a slot contains.
+fn saves_cmd(args: &[String]) -> Result<(), String> {
+    let as_json = args.iter().any(|arg| arg == "--json");
+    // `--delete <slot>` removes one file. The screen has no delete button yet, and a damaged slot
+    // is precisely the thing a player needs to get rid of, so the operation exists here.
+    let mut delete_slot: Option<String> = None;
+    let mut shot_out: Option<String> = None;
+    let mut mode = save_screen::ScreenMode::Save;
+    let mut index_arg = 0;
+    while index_arg < args.len() {
+        match args[index_arg].as_str() {
+            "--delete" => {
+                delete_slot = Some(
+                    args.get(index_arg + 1)
+                        .ok_or("--delete needs a slot label such as `1` or `quick`")?
+                        .clone(),
+                );
+                index_arg += 2;
+                continue;
+            }
+            "--shot" => {
+                shot_out = Some(
+                    args.get(index_arg + 1)
+                        .ok_or("--shot needs an output path")?
+                        .clone(),
+                );
+                index_arg += 2;
+                continue;
+            }
+            "--mode" => {
+                let value = args
+                    .get(index_arg + 1)
+                    .ok_or("--mode needs `save` or `load`")?;
+                mode = match value.as_str() {
+                    "save" => save_screen::ScreenMode::Save,
+                    "load" => save_screen::ScreenMode::Load,
+                    other => return Err(format!("--mode expects `save` or `load`, got `{other}`")),
+                };
+                index_arg += 2;
+                continue;
+            }
+            _ => {}
+        }
+        index_arg += 1;
+    }
+
+    let dir = args
+        .iter()
+        .enumerate()
+        .filter(|(position, _)| {
+            // Skip the value that follows `--delete`.
+            let previous = position.checked_sub(1).and_then(|at| args.get(at));
+            !args[*position].starts_with("--") && previous.is_none_or(|prev| prev != "--delete")
+        })
+        .map(|(_, arg)| arg)
+        .find(|arg| !arg.starts_with("--"))
+        .ok_or("saves needs a story path")?;
+
+    let story_path = PathBuf::from(dir);
+    let story = load(&story_path)?;
+    let layout = rustory_vn_core::SlotLayout::beside(&story_path);
+
+    if let Some(label) = delete_slot {
+        let slot = layout
+            .slots()
+            .find(|slot| slot.label() == label || slot.stem() == label)
+            .ok_or_else(|| {
+                format!(
+                    "no slot `{label}`; this layout has {:?}",
+                    layout.slots().map(|slot| slot.label()).collect::<Vec<_>>()
+                )
+            })?;
+        slots_fs::delete(&layout, slot).map_err(|err| err.to_string())?;
+        if as_json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "ok": true,
+                    "deleted": slot.label(),
+                    "path": layout.path(slot).display().to_string(),
+                })
+            );
+        } else {
+            println!("deleted slot {}", slot.label());
+        }
+        return Ok(());
+    }
+
+    let index = slots_fs::read_all_with_times(&layout, &story);
+
+    if as_json {
+        let slots: Vec<serde_json::Value> = layout
+            .slots()
+            .map(|slot| {
+                let summary = index.get(slot);
+                serde_json::json!({
+                    "slot": slot.label(),
+                    "stem": slot.stem(),
+                    "path": layout.path(slot).display().to_string(),
+                    "empty": summary.is_none_or(rustory_vn_core::SlotSummary::is_empty),
+                    "title": summary.and_then(|s| s.title.clone()),
+                    "node": summary.and_then(|s| s.node.as_ref().map(ToString::to_string)),
+                    "language": summary.and_then(|s| s.language.clone()),
+                    "line": summary.and_then(|s| s.line.clone()),
+                    "saved_at_ms": summary.and_then(|s| s.saved_at_ms),
+                    "problem": summary.and_then(|s| s.problem.clone()),
+                })
+            })
+            .collect();
+
+        println!(
+            "{}",
+            serde_json::json!({
+                "ok": true,
+                "path": story_path.display().to_string(),
+                "dir": layout.dir().display().to_string(),
+                "occupied": index.occupied(),
+                "newest": index.newest().map(|summary| summary.slot.label()),
+                "slots": slots,
+            })
+        );
+        return Ok(());
+    }
+
+    println!("{}", layout.dir().display());
+    for line in index.describe_all(&layout) {
+        println!("{line}");
+    }
+    if let Some(newest) = index.newest() {
+        println!("newest: {}", newest.slot.label());
+    }
+
+    // `--shot <png> --mode save|load` renders the screen itself. Not decoration: it is how the
+    // screen can be looked at without a window, which is what makes it reviewable and what the
+    // screenshots in the README come from.
+    if let Some(out) = shot_out {
+        render_screen(&story_path, &story, &layout, &index, mode, Path::new(&out))?;
+    }
+    Ok(())
+}
+
+/// Render the save screen to a PNG.
+///
+/// Uses the same `GameplayView` the window paints, so what this writes is what a player sees —
+/// the alternative, a separate preview drawing, is how a screenshot stops being evidence.
+fn render_screen(
+    story_path: &Path,
+    story: &rustory_vn_core::Story,
+    layout: &rustory_vn_core::SlotLayout,
+    index: &rustory_vn_core::SlotIndex,
+    mode: save_screen::ScreenMode,
+    out: &Path,
+) -> Result<(), String> {
+    use save_screen::SaveScreen as _;
+
+    let mut renderer = Renderer::new_headless(WIDTH, HEIGHT).map_err(|err| err.to_string())?;
+    let bank = driver::load_textures(&mut renderer, Path::new("assets"));
+    let _ = driver::load_fonts(&mut renderer, Path::new("assets"));
+
+    // A narrative is needed only to draw the story behind the screen, and there is none: the
+    // screen covers the whole box. So the frame is built from the screen's view over an empty
+    // narrative, which is what the window does too.
+    let _ = story_path;
+    let view = save_screen::GridScreen.view(index, layout, mode);
+    let narrative = Narrative::new(story.clone()).map_err(|err| err.to_string())?;
+    let frame = driver::build_frame(&narrative, &bank, Some(&view), None);
+
+    let image = renderer
+        .render_offscreen(&frame)
+        .map_err(|err| err.to_string())?;
+    image.save_png(out).map_err(|err| err.to_string())?;
+
+    println!(
+        "wrote {} ({}x{}, {} primitives, {})",
+        out.display(),
+        image.width(),
+        image.height(),
+        frame.primitive_count(),
+        match mode {
+            save_screen::ScreenMode::Save => "save screen",
+            save_screen::ScreenMode::Load => "load screen",
+        }
     );
     Ok(())
 }

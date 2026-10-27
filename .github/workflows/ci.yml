@@ -276,8 +276,7 @@ jobs:
           grep -qv "0 primitives" /tmp/doors-shot.txt
 
       - name: An unloadable module fails the check
-        run: |
-          # Declared, missing, and therefore fatal: loading nothing would leave the story
+        run: |          # Declared, missing, and therefore fatal: loading nothing would leave the story
           # unplayable with no explanation.
           cat > /tmp/needs-plugin.ron <<'RON'
           Story(
@@ -297,6 +296,35 @@ jobs:
           )
           RON
           ! cargo run -q -p rustory-vn -- check /tmp/needs-plugin.ron
+
+      # The save screen, end to end: write a real save, list it, render the screen, then
+      # delete the slot. Each command is one a player or an agent actually uses, and the
+      # screenshot proves the screen draws rather than the code merely compiling.
+      - name: Save slots round-trip through the CLI and the screen renders
+        run: |
+          cargo run -q -p rustory-vn -- save stories/demo.ron --advance 5 \
+            --out stories/saves/slot00.ron
+          cargo run -q -p rustory-vn -- saves stories/demo.ron | tee /tmp/saves.txt
+          # The slot is occupied, and the listing says which node it holds.
+          grep -q "1: RuStory demo at" /tmp/saves.txt
+
+          cargo run -q -p rustory-vn -- saves stories/demo.ron --json \
+            | python3 -c "import json,sys; r=json.load(sys.stdin); assert r['occupied']==1, r; assert r['newest']=='1', r; assert len(r['slots'])==10, r"
+
+          cargo run -q -p rustory-vn -- saves stories/demo.ron --shot /tmp/save.png --mode load \
+            | tee /tmp/save-shot.txt
+          # A screen that drew nothing would still write a PNG, so the primitive count is the
+          # check: 78 elements is the grid, not an empty frame.
+          python3 -c "
+          import re
+          text = open('/tmp/save-shot.txt').read()
+          primitives = int(re.search(r'(\d+) primitives', text).group(1))
+          assert primitives > 50, text
+          print(f'{primitives} primitives')
+          "
+
+          cargo run -q -p rustory-vn -- saves stories/demo.ron --delete 1
+          cargo run -q -p rustory-vn -- saves stories/demo.ron | grep -q "1: empty"
 
       - name: The editor renders a frame without a window
         run: cargo run -q -p rustory-vn-editor -- --check stories/demo.ron --out /tmp/preview.png
