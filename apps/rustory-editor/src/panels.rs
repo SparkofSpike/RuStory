@@ -560,6 +560,21 @@ pub fn beat_editor(app: &mut EditorApp, ui: &mut egui::Ui) {
                         ui.label(format!("{index}"));
                         ui.separator();
 
+                        // Insert a copy right after this beat. The row of buttons below the
+                        // list can only append, and moving a new beat up from the end is the
+                        // kind of busywork that makes an editor feel like a form to fill in.
+                        if ui
+                            .button("+")
+                            .on_hover_text("Insert a copy after this beat")
+                            .clicked()
+                        {
+                            app.pending.push(EditOp::InsertBeat {
+                                node: selected.clone(),
+                                index: index + 1,
+                                beat: beat.clone(),
+                            });
+                        }
+
                         // Move up / down / delete
                         if ui.add_enabled(index > 0, egui::Button::new("Up")).clicked() {
                             app.pending.push(EditOp::MoveBeat {
