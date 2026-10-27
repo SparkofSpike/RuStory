@@ -22,7 +22,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::gameplay::{ChoiceMade, Stats};
-use crate::ids::{NodeId, SystemId};
+use crate::ids::{NodeId, StoryId, SystemId};
 use crate::narrative::Mode;
 use crate::stage::Stage;
 
@@ -77,6 +77,21 @@ pub struct SaveState {
     /// Branches taken so far, oldest first.
     #[serde(default)]
     pub choices: Vec<ChoiceMade>,
+    /// Which story this save belongs to, if the save was written by a build that recorded it.
+    ///
+    /// `story_checksum` already refuses a save from a different *shape*, which is what protects a
+    /// playthrough. This answers a different question — "is this file even mine?" — which a slot
+    /// screen asks about a directory full of saves, where a checksum mismatch is not yet known.
+    /// Defaulted because an older save simply does not say.
+    #[serde(default)]
+    pub story: Option<StoryId>,
+    /// The language it was played in, if the story had one.
+    ///
+    /// Recorded so a slot screen can say "this save is in Japanese" and so resuming does not
+    /// silently change language under a player who chose one. Defaulted: a single-language story
+    /// has nothing to record.
+    #[serde(default)]
+    pub language: Option<String>,
     /// Shared counters.
     pub stats: Stats,
     /// Present only when the save was taken while a gameplay system had control.
@@ -124,6 +139,8 @@ mod tests {
             music: Some("classroom".to_owned()),
             visited: vec![NodeId::from("a")],
             choices: Vec::new(),
+            story: None,
+            language: None,
             stats,
             gameplay: None,
         }

@@ -71,3 +71,11 @@ define_id! {
     /// table, which is why adding a gameplay system needs no core change.
     OutcomeKey
 }
+
+define_id! {
+    /// Which story a save belongs to.
+    ///
+    /// A title is not an identity: two projects can both be called "Demo", and a title changes
+    /// mid-project. This is the value a project writes once and keeps.
+    StoryId
+}

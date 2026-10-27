@@ -202,6 +202,8 @@ impl Narrative {
             music: self.music.clone(),
             visited: self.visited.clone(),
             choices: self.choices_made.clone(),
+            story: self.story.meta.id.clone(),
+            language: self.story.default_language.clone(),
             stats: self.stats.clone(),
             gameplay,
         })

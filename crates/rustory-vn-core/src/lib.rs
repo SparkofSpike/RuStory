@@ -59,6 +59,7 @@ mod gameplay;
 mod ids;
 mod narrative;
 mod save;
+mod slots;
 mod stage;
 mod story;
 mod text;
@@ -73,6 +74,9 @@ pub use gameplay::{
 pub use ids::{ActorId, NodeId, OutcomeKey, SystemId};
 pub use narrative::{LineView, Mode, Narrative};
 pub use save::{GameplaySave, SAVE_VERSION, SaveState};
+pub use slots::{
+    DEFAULT_SLOTS, SaveSlot, SlotIndex, SlotLayout, SlotSummary, Thumbnail, damaged, summarise,
+};
 pub use stage::{ActorOnStage, Stage};
 pub use story::{Beat, Choice, Exit, GameplaySpec, MissingText, Node, Slot, Story, StoryMeta};
 pub use text::{LocaleTable, Locales, Text, is_valid_language_tag};

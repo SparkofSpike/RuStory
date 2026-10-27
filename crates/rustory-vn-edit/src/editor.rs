@@ -111,6 +111,7 @@ impl Editor {
         story.meta = StoryMeta {
             title,
             author: None,
+            id: None,
         };
         Self::new(Document::untitled(story))
     }

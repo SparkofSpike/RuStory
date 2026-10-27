@@ -140,6 +140,14 @@ pub struct StoryMeta {
     pub title: Option<String>,
     #[serde(default)]
     pub author: Option<String>,
+    /// A stable identity for this project, independent of its title.
+    ///
+    /// Written once and kept, because a save records it: renaming a story must not orphan its
+    /// saves, and two projects called "Demo" must not accept each other's. Absent for a story
+    /// that never set one, which is the common case and costs nothing — a save from such a story
+    /// simply says nothing about which project it belongs to.
+    #[serde(default)]
+    pub id: Option<crate::ids::StoryId>,
 }
 
 /// The whole story graph.
